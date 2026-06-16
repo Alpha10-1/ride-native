@@ -1,3 +1,5 @@
+// app/(rider)/home.tsx
+
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { router } from "expo-router";
@@ -12,7 +14,7 @@ import PrimaryButton from "../../src/components/PrimaryButton";
 import SwipeableSheet from "../../src/components/SwipeableSheet";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import RiderHeader from "../../src/components/RiderHeader";
-import Mapbox from "@rnmapbox/maps";
+import RiderMap from "../../src/components/RiderMap";
 
 function LocationPill({
   label,
@@ -50,7 +52,6 @@ const pillStyles = StyleSheet.create({
     top: SPACE.sm,
     alignSelf: "center",
 
-    // 🔥 shrink-wrap to content (no fixed width)
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -61,14 +62,12 @@ const pillStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,0,0,0.35)",
 
-    // floating shadow
     shadowColor: "#000",
     shadowOpacity: 0.35,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
 
-    // ✅ safety so long names don't take the whole screen
     maxWidth: "92%",
   },
   badge: {
@@ -85,7 +84,7 @@ const pillStyles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     fontWeight: "900",
-    maxWidth: 220, // keeps "Pietermaritzburg" fine, prevents super-long overflow
+    maxWidth: 220,
   },
   chevWrap: {
     width: 34,
@@ -104,10 +103,13 @@ export default function RiderHome() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropoff, setDropoff] = useState("");
   const [tab, setTab] = useState<"home" | "work" | "recent" | "safety">("home");
-  const [currentCityOrArea, setCurrentCityOrArea] = useState<string>(
-    "Current location"
-  );
+
+  const [currentCityOrArea, setCurrentCityOrArea] =
+    useState<string>("Current location");
   const [locLoading, setLocLoading] = useState(false);
+
+  // ✅ Keep the user's coordinate in state (Mapbox needs [lng, lat])
+  const [userCoord, setUserCoord] = useState<[number, number] | null>(null);
 
   const refreshUserLocation = async () => {
     try {
@@ -122,6 +124,14 @@ export default function RiderHome() {
       const pos = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
+
+      const coord: [number, number] = [
+        pos.coords.longitude,
+        pos.coords.latitude,
+      ];
+
+      // ✅ Store coordinate (map will center via RiderMap)
+      setUserCoord(coord);
 
       const geos = await Location.reverseGeocodeAsync({
         latitude: pos.coords.latitude,
@@ -150,6 +160,9 @@ export default function RiderHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fallback (Johannesburg) while we’re still locating
+  const fallbackCoord: [number, number] = [28.0473, -26.2041];
+  const centerCoord = userCoord ?? fallbackCoord;
 
   return (
     <Screen>
@@ -159,22 +172,14 @@ export default function RiderHome() {
         onMenu={() => setMenuOpen((v) => !v)}
       />
 
-      {/* ✅ Real Mapbox map area */}
+      {/* ✅ Map area */}
       <View style={styles.mapArea}>
-        <Mapbox.MapView
-          style={StyleSheet.absoluteFillObject}
-          logoEnabled={false}
-          attributionEnabled={false}
-          compassEnabled={true}
-          scaleBarEnabled={false}
-        >
-          <Mapbox.Camera
-            zoomLevel={12}
-            centerCoordinate={[28.0473, -26.2041]} // Johannesburg (lng, lat)
-            animationMode="flyTo"
-            animationDuration={800}
+        <View style={styles.mapCard}>
+          <RiderMap
+            centerCoordinate={centerCoord}
+            zoomLevel={userCoord ? 14 : 12}
           />
-        </Mapbox.MapView>
+        </View>
 
         {/* ✅ Floating location pill overlay */}
         <LocationPill
@@ -225,7 +230,9 @@ export default function RiderHome() {
           {tab === "recent" && (
             <GlassCard>
               <Text style={styles.sheetTitle}>Recent</Text>
-              <Text style={styles.sheetSub}>Your recent trips will appear here.</Text>
+              <Text style={styles.sheetSub}>
+                Your recent trips will appear here.
+              </Text>
             </GlassCard>
           )}
 
@@ -251,22 +258,24 @@ export default function RiderHome() {
       <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} />
     </Screen>
   );
-
 }
 
 const styles = StyleSheet.create({
-  mapArea: { flex: 1, paddingHorizontal: SPACE.md, paddingBottom: 120 },
-  mapFake: {
+  mapArea: {
+    flex: 1,
+    paddingHorizontal: SPACE.md,
+    paddingBottom: 120,
+  },
+
+  // ✅ rounded "map card" that clips the map correctly
+  mapCard: {
     flex: 1,
     borderRadius: RADIUS.xl,
+    overflow: "hidden",
     backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
   },
-  mapText: { color: COLORS.text, fontSize: 18, fontWeight: "900" },
-  mapSub: { color: COLORS.textDim, marginTop: 6 },
 
   sheetTitle: { color: COLORS.text, fontSize: 16, fontWeight: "900" },
   sheetSub: { color: COLORS.textDim, marginTop: 6, fontSize: 12 },

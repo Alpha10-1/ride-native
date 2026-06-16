@@ -16,23 +16,11 @@ type TabKey = "home" | "work" | "recent" | "safety";
 
 type Props = {
   children: React.ReactNode;
-
-  /** Height of the visible handle area when collapsed */
   handleHeight?: number;
-
-  /** Extra breathing room from top when expanded (prevents covering whole screen) */
   topGap?: number;
-
-  /** Hard cap so sheet never grows too tall (even if content is huge) */
   maxHeight?: number;
-
-  /** Start expanded on first load */
   defaultExpanded?: boolean;
-
-  /** Optional: start on a specific tab */
   defaultTab?: TabKey;
-
-  /** Optional: get notified when tab changes */
   onTabChange?: (tab: TabKey) => void;
 };
 
@@ -41,7 +29,7 @@ export default function SwipeableSheet({
   handleHeight = 56,
   topGap = 160,
   maxHeight = 680,
-  defaultExpanded = true, // ✅ sheet should be up already
+  defaultExpanded = true,
   defaultTab = "home",
   onTabChange,
 }: Props) {
@@ -54,12 +42,20 @@ export default function SwipeableSheet({
 
   // Measure content height (everything below the handle)
   const [contentH, setContentH] = useState(260);
+  const contentHRef = useRef(contentH);
+
   const onContentLayout = (e: LayoutChangeEvent) => {
     const h = Math.ceil(e.nativeEvent.layout.height);
-    if (h > 0 && h !== contentH) setContentH(h);
+    if (h <= 0) return;
+
+    // ✅ ignore tiny 1-2px fluctuations that cause "vibration"
+    const prev = contentHRef.current;
+    if (Math.abs(h - prev) < 6) return;
+
+    contentHRef.current = h;
+    setContentH(h);
   };
 
-  // Total sheet height should fit content, but not exceed maxHeight or screen space
   const sheetHeight = useMemo(() => {
     const desired = handleHeight + contentH;
     const capByMax = Math.min(desired, maxHeight);
@@ -67,17 +63,15 @@ export default function SwipeableSheet({
     return capByScreen;
   }, [handleHeight, contentH, maxHeight, vh]);
 
-  // Collapsed: only handle visible => translate down by (sheetHeight - handleHeight)
   const collapsedTranslate = useMemo(
     () => Math.max(sheetHeight - handleHeight, 0),
     [sheetHeight, handleHeight]
   );
 
-  // Expanded: don’t go to top; stop at a "topGap"
   const expandedTranslate = useMemo(() => {
     const minTranslate = Math.max(topGap, 0);
-
     const topAtZero = vh - sheetHeight - 12;
+
     if (topAtZero >= minTranslate) return 0;
 
     const neededDown = minTranslate - topAtZero;
@@ -91,32 +85,23 @@ export default function SwipeableSheet({
     new Animated.Value(defaultExpanded ? expandedTranslate : collapsedTranslate)
   ).current;
 
+  // ✅ SINGLE source of truth for snapping (no double-spring)
   useEffect(() => {
-    // Keep in sync when content/resize changes
-    Animated.spring(translateY, {
-      toValue: expanded ? expandedTranslate : collapsedTranslate,
-      useNativeDriver: true,
-      tension: 110,
-      friction: 18,
-    }).start();
+    const toValue = expanded ? expandedTranslate : collapsedTranslate;
+
+    // stop any running animation before starting a new one
+    translateY.stopAnimation(() => {
+      Animated.spring(translateY, {
+        toValue,
+        useNativeDriver: true,
+        tension: 110,
+        friction: 18,
+      }).start();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collapsedTranslate, expandedTranslate]);
+  }, [expanded, collapsedTranslate, expandedTranslate]);
 
-  const snapTo = (toValue: number) => {
-    Animated.spring(translateY, {
-      toValue,
-      useNativeDriver: true,
-      tension: 110,
-      friction: 18,
-    }).start();
-  };
-
-  const setExpandState = (next: boolean) => {
-    setExpanded(next);
-    snapTo(next ? expandedTranslate : collapsedTranslate);
-  };
-
-  const toggle = () => setExpandState(!expanded);
+  const toggle = () => setExpanded((p) => !p);
 
   // ---------------- Tabs ----------------
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
@@ -144,7 +129,6 @@ export default function SwipeableSheet({
         },
       ]}
     >
-      {/* Handle: click/tap toggles */}
       <Pressable
         onPress={toggle}
         style={[
@@ -158,9 +142,7 @@ export default function SwipeableSheet({
         <View style={styles.grabber} />
       </Pressable>
 
-      {/* Content measured here */}
       <View onLayout={onContentLayout} style={styles.content}>
-        {/* Tabs row */}
         <View style={styles.tabsRow}>
           {tabs.map((t) => {
             const active = activeTab === t.key;

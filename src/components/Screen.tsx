@@ -1,16 +1,18 @@
 import React from "react";
-import { View, StyleSheet, StatusBar } from "react-native";
+import { View, StyleSheet, StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { COLORS } from "../theme/tokens";
 
 export default function Screen({ children }: { children: React.ReactNode }) {
+  const Container: any = Platform.OS === "web" ? View : SafeAreaView;
+
   return (
-    <SafeAreaView style={styles.safe}>
+    <Container style={styles.safe}>
       <StatusBar barStyle="light-content" />
-      <View pointerEvents="none" style={styles.glowTop} />
-      <View pointerEvents="none" style={styles.glowBottom} />
+      <View style={styles.glowTop} />
+      <View style={styles.glowBottom} />
       <View style={styles.body}>{children}</View>
-    </SafeAreaView>
+    </Container>
   );
 }
 
@@ -29,10 +31,20 @@ const styles = StyleSheet.create({
     right: -120,
     height: 360,
     borderRadius: 999,
-    shadowColor: COLORS.red,
-    shadowOpacity: 0.25,
-    shadowRadius: 140,
-    shadowOffset: { width: 0, height: 60 },
+
+    // ✅ react-native-web prefers boxShadow
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0px 60px 140px rgba(255,0,0,0.25)` }
+      : {
+          shadowColor: COLORS.red,
+          shadowOpacity: 0.25,
+          shadowRadius: 140,
+          shadowOffset: { width: 0, height: 60 },
+          elevation: 0,
+        }),
+
+    // ✅ pointerEvents prop is deprecated on web, so set via style
+    pointerEvents: "none",
   },
   glowBottom: {
     position: "absolute",
@@ -41,9 +53,17 @@ const styles = StyleSheet.create({
     right: -140,
     height: 420,
     borderRadius: 999,
-    shadowColor: COLORS.red,
-    shadowOpacity: 0.12,
-    shadowRadius: 180,
-    shadowOffset: { width: 0, height: -80 },
+
+    ...(Platform.OS === "web"
+      ? { boxShadow: `0px -80px 180px rgba(255,0,0,0.12)` }
+      : {
+          shadowColor: COLORS.red,
+          shadowOpacity: 0.12,
+          shadowRadius: 180,
+          shadowOffset: { width: 0, height: -80 },
+          elevation: 0,
+        }),
+
+    pointerEvents: "none",
   },
 });

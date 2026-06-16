@@ -14,13 +14,22 @@ export default function SegmentedTabs({
 }) {
   const indicatorStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ translateX: withTiming(value === "login" ? 0 : 1 * INDICATOR_W, { duration: 180 }) }],
+      transform: [
+        {
+          translateX: withTiming(value === "login" ? "0%" : "100%", {
+            duration: 180,
+          }),
+        },
+      ],
     };
   }, [value]);
 
   return (
     <View style={styles.wrap}>
-      <Animated.View style={[styles.indicator, indicatorStyle]} />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.indicator, indicatorStyle]}
+      />
 
       <Pressable onPress={() => onChange("login")} style={styles.btn}>
         <Text style={[styles.txt, value === "login" && styles.activeTxt]}>Login</Text>
@@ -33,7 +42,8 @@ export default function SegmentedTabs({
   );
 }
 
-const INDICATOR_W = 1; // gets replaced by flex trick below
+const INDICATOR_W = 0.5;
+
 
 const styles = StyleSheet.create({
   wrap: {
