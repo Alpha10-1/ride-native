@@ -1,36 +1,50 @@
 import React from "react";
-import { View, TextInput, StyleSheet } from "react-native";
+import { View, Text, TextInput, StyleSheet } from "react-native";
 import { COLORS, RADIUS } from "../theme/tokens";
 
 export default function TextField({
+  label,
   placeholder,
   value,
   onChangeText,
   secureTextEntry,
   keyboardType,
+  autoCapitalize,
 }: {
+  label?: string;
   placeholder: string;
   value: string;
   onChangeText: (t: string) => void;
   secureTextEntry?: boolean;
-  keyboardType?: "default" | "phone-pad" | "email-address";
+  keyboardType?: "default" | "phone-pad" | "email-address" | "numeric";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
 }) {
   return (
-    <View style={styles.box}>
-      <TextInput
-        placeholder={placeholder}
-        placeholderTextColor={COLORS.textFaint}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType}
-        style={styles.input}
-      />
+    <View style={{ gap: 6 }}>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+      <View style={styles.box}>
+        <TextInput
+          placeholder={placeholder}
+          placeholderTextColor={COLORS.textFaint}
+          value={value}
+          onChangeText={onChangeText}
+          secureTextEntry={secureTextEntry}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize ?? "none"}
+          style={styles.input}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  label: {
+    color: COLORS.text,
+    fontWeight: "800",
+    fontSize: 13,
+    textAlign: "center",
+  },
   box: {
     backgroundColor: "rgba(0,0,0,0.65)",
     borderRadius: RADIUS.lg,
