@@ -27,6 +27,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["@rnmapbox/maps"]
+    "plugins": [
+      "@rnmapbox/maps",
+      "expo-font"
+    ]
   }
 }
