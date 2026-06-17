@@ -32,12 +32,12 @@ export default function RiderSettings() {
         </GlassCard>
 
         <Text style={styles.section}>Account</Text>
-        <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => {}} />
-        <RowItem icon="bookmark-outline" title="Saved places" subtitle="Home, Work, favourites" onPress={() => {}} />
+        <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(rider)/profile")} />
+        <RowItem icon="bookmark-outline" title="Saved places" subtitle="Home, Work, favourites" onPress={() => router.push("/(rider)/saved-places")} />
 
         <Text style={styles.section}>Payments</Text>
         <RowItem icon="card-outline" title="Payments" subtitle="Cash / card options" onPress={() => {}} />
-        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Vouchers & deals" onPress={() => {}} />
+        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Vouchers & deals" onPress={() => router.push("/(rider)/promotions")} />
 
         <Text style={styles.section}>Safety</Text>
         <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => {}} />
@@ -59,7 +59,7 @@ export default function RiderSettings() {
             onPress={() => router.replace("/auth/login")}
         />
       </ScrollView>
-      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />
     </Screen>
   );
 }

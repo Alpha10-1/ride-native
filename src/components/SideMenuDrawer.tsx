@@ -40,10 +40,12 @@ function BecomeDriverBanner({ onPress }: { onPress: () => void }) {
 export default function SideMenuDrawer({
   open,
   onClose,
+  role = "rider",
   widthPct = 0.55,
 }: {
   open: boolean;
   onClose: () => void;
+  role?: "rider" | "driver";
   widthPct?: number;
 }) {
   const { width: W, height: H } = Dimensions.get("window");
@@ -66,6 +68,9 @@ export default function SideMenuDrawer({
       }),
     ]).start();
   }, [open, panelW, translateX, backdrop]);
+
+  const isDriver = role === "driver";
+  const base = isDriver ? "/(driver)" : "/(rider)";
 
   return (
     <View
@@ -97,12 +102,14 @@ export default function SideMenuDrawer({
         </View>
 
         <View style={{ paddingHorizontal: SPACE.md, gap: SPACE.sm }}>
-          <BecomeDriverBanner
-            onPress={() => {
-              onClose();
-              router.push("/(rider)/become-driver");
-            }}
-          />
+          {!isDriver && (
+            <BecomeDriverBanner
+              onPress={() => {
+                onClose();
+                router.push("/(rider)/become-driver");
+              }}
+            />
+          )}
 
           <RowItem
             title="Profile"
@@ -110,19 +117,31 @@ export default function SideMenuDrawer({
             icon="person-outline"
             onPress={() => {
               onClose();
-              router.push("/(rider)/profile");
+              router.push(`${base}/profile`);
             }}
           />
 
-          <RowItem
-            title="Book a Ride"
-            subtitle="Request a ride"
-            icon="car-outline"
-            onPress={() => {
-              onClose();
-              router.replace("/(rider)/home");
-            }}
-          />
+          {isDriver ? (
+            <RowItem
+              title="Go Online"
+              subtitle="Start accepting trips"
+              icon="car-outline"
+              onPress={() => {
+                onClose();
+                router.replace("/(driver)/home");
+              }}
+            />
+          ) : (
+            <RowItem
+              title="Book a Ride"
+              subtitle="Request a ride"
+              icon="car-outline"
+              onPress={() => {
+                onClose();
+                router.replace("/(rider)/home");
+              }}
+            />
+          )}
 
           <RowItem
             title="Promotions"
@@ -130,17 +149,17 @@ export default function SideMenuDrawer({
             icon="pricetag-outline"
             onPress={() => {
               onClose();
-              router.push("/(rider)/promotions");
+              router.push(`${base}/promotions`);
             }}
           />
 
           <RowItem
-            title="Ride credits"
-            subtitle="Wallet & credits"
+            title={isDriver ? "Earnings" : "Ride credits"}
+            subtitle={isDriver ? "Wallet & payouts" : "Wallet & credits"}
             icon="wallet-outline"
             onPress={() => {
               onClose();
-              router.push("/(rider)/credits");
+              router.push(`${base}/wallet`);
             }}
           />
 
@@ -150,7 +169,7 @@ export default function SideMenuDrawer({
             icon="settings-outline"
             onPress={() => {
               onClose();
-              router.push("/(rider)/settings");
+              router.push(`${base}/settings`);
             }}
           />
 
@@ -160,7 +179,7 @@ export default function SideMenuDrawer({
             icon="help-circle-outline"
             onPress={() => {
               onClose();
-              router.push("/(rider)/support");
+              router.push(`${base}/support`);
             }}
           />
 

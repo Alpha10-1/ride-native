@@ -11,6 +11,7 @@ import PrimaryButton from "../../src/components/PrimaryButton";
 import RoleCard from "../../src/components/RoleCard";
 import TermsModal from "../../src/components/TermsModal";
 import { COLORS, SPACE } from "../../src/theme/tokens";
+import { registerUser, loginUser } from "../../src/lib/auth";
 
 type Mode = "login" | "register";
 type Role = "rider" | "driver" | null;
@@ -19,6 +20,8 @@ export default function LoginScreen() {
   const [mode, setMode] = useState<Mode>("login");
   const [termsVisible, setTermsVisible] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // shared
   const [username, setUsername] = useState("");
@@ -84,17 +87,68 @@ export default function LoginScreen() {
 
   const handleSwitchMode = (next: Mode) => {
     setMode(next);
+    setSubmitError(null);
   };
 
-  const handleSubmit = () => {
-    if (!canContinue) return;
+  // Converts "DD/MM/YYYY" -> "YYYY-MM-DD" for Postgres. Returns null if invalid.
+  const toIsoDate = (input: string): string | null => {
+    const match = input.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return null;
+    const [, dd, mm, yyyy] = match;
+    const day = Number(dd);
+    const month = Number(mm);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const handleSubmit = async () => {
+    if (!canContinue || submitting) return;
+    setSubmitError(null);
 
     if (isRegister) {
-      // TODO: send registration payload to backend / Supabase here
-      router.replace("/auth/role");
+      const isoDob = toIsoDate(dob);
+      if (!isoDob) {
+        setSubmitError("Please enter date of birth as DD/MM/YYYY.");
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        await registerUser({
+          username,
+          password,
+          firstName,
+          lastName,
+          email,
+          cellphone,
+          dateOfBirth: isoDob,
+          role: role as "rider" | "driver",
+          driverLicenseNumber: licenseNumber,
+          vehicleMake,
+          vehicleModel,
+          licensePlate,
+        });
+        router.replace("/auth/role");
+      } catch (e: any) {
+        const message = e?.message ?? "Something went wrong creating your account.";
+        if (message.toLowerCase().includes("already registered")) {
+          setSubmitError("That username is already taken.");
+        } else {
+          setSubmitError(message);
+        }
+      } finally {
+        setSubmitting(false);
+      }
     } else {
-      // TODO: send login credentials to backend / Supabase here
-      router.replace("/auth/role");
+      setSubmitting(true);
+      try {
+        await loginUser(username, password);
+        router.replace("/auth/role");
+      } catch (e: any) {
+        setSubmitError(e?.message ?? "Something went wrong signing in.");
+      } finally {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -201,11 +255,13 @@ export default function LoginScreen() {
 
           <View style={{ marginTop: SPACE.md }}>
             <PrimaryButton
-              label={isRegister ? "Continue" : "Sign In"}
-              disabled={!canContinue}
+              label={submitting ? "Please wait..." : isRegister ? "Continue" : "Sign In"}
+              disabled={!canContinue || submitting}
               onPress={handleSubmit}
             />
           </View>
+
+          {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
 
           {isRegister && password !== confirm && confirm.length > 0 ? (
             <Text style={styles.error}>Passwords do not match.</Text>
