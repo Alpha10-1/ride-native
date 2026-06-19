@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   Animated,
   Dimensions,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -101,7 +102,11 @@ export default function SideMenuDrawer({
           </Text>
         </View>
 
-        <View style={{ paddingHorizontal: SPACE.md, gap: SPACE.sm }}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: SPACE.md, gap: SPACE.sm, paddingBottom: SPACE.xl }}
+          showsVerticalScrollIndicator={false}
+        >
           {!isDriver && (
             <BecomeDriverBanner
               onPress={() => {
@@ -194,7 +199,7 @@ export default function SideMenuDrawer({
               router.replace("/auth/login");
             }}
           />
-        </View>
+        </ScrollView>
       </Animated.View>
     </View>
   );
