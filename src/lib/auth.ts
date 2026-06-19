@@ -149,6 +149,51 @@ export async function updateProfile(payload: ProfileUpdatePayload) {
   return data;
 }
 
+export type Language = "en" | "af" | "zu" | "xh";
+
+export async function updatePreferences(payload: {
+  notifyPush?: boolean;
+  notifySms?: boolean;
+  language?: Language;
+}) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) throw new Error("Not signed in.");
+
+  const updates: Record<string, any> = {};
+  if (payload.notifyPush !== undefined) updates.notify_push = payload.notifyPush;
+  if (payload.notifySms !== undefined) updates.notify_sms = payload.notifySms;
+  if (payload.language !== undefined) updates.language = payload.language;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(updates)
+    .eq("id", userId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+// Permanently deletes the current user's account and all associated data
+// (profile, wallet, saved places, redeemed promotions cascade automatically
+// via foreign key constraints). This cannot be undone.
+export async function deleteAccount() {
+  const { error } = await supabase.rpc("delete_own_account");
+  if (error) throw error;
+
+  // The auth user no longer exists server-side at this point. Modern
+  // supabase-js versions handle this gracefully and still clear local
+  // session storage, but we swallow any error here defensively since the
+  // account is already deleted regardless of whether this call succeeds.
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // ignore: local session cleanup is best-effort once the account is gone
+  }
+}
+
 export async function logout() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;

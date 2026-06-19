@@ -44,12 +44,12 @@ export default function DriverSettings() {
         <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => {}} />
 
         <Text style={styles.section}>Preferences</Text>
-        <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => {}} />
-        <RowItem icon="language-outline" title="Language" subtitle="App language" onPress={() => {}} />
+        <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => router.push("/(rider)/notifications-settings")} />
+        <RowItem icon="language-outline" title="Language" subtitle="App language" onPress={() => router.push("/(rider)/language-settings")} />
 
         <Text style={styles.section}>Legal</Text>
-        <RowItem icon="document-text-outline" title="Privacy" subtitle="Data & permissions" onPress={() => {}} />
-        <RowItem icon="information-circle-outline" title="About" subtitle="Version, legal" onPress={() => {}} />
+        <RowItem icon="document-text-outline" title="Privacy" subtitle="Data & permissions" onPress={() => router.push("/(rider)/privacy")} />
+        <RowItem icon="information-circle-outline" title="About" subtitle="Version, legal" onPress={() => router.push("/(rider)/about")} />
 
         <Text style={[styles.section, { color: COLORS.red }]}>Session</Text>
         <RowItem
