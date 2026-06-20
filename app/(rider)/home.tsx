@@ -221,7 +221,7 @@ export default function RiderHome() {
 
               <PrimaryButton
                 label="Request Ride"
-                onPress={() => router.push("/(rider)/trip")}
+                onPress={() => router.push("/(rider)/booking")}
                 disabled={!pickup.trim() || !dropoff.trim()}
               />
             </>
@@ -255,7 +255,7 @@ export default function RiderHome() {
         </View>
       </SwipeableSheet>
 
-      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />
     </Screen>
   );
 }

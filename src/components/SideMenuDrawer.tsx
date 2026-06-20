@@ -133,7 +133,7 @@ export default function SideMenuDrawer({
               icon="car-outline"
               onPress={() => {
                 onClose();
-                router.replace("/(driver)/home");
+                router.push("/(driver)/requests");
               }}
             />
           ) : (
@@ -143,7 +143,7 @@ export default function SideMenuDrawer({
               icon="car-outline"
               onPress={() => {
                 onClose();
-                router.replace("/(rider)/home");
+                router.push("/(rider)/booking");
               }}
             />
           )}

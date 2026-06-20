@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
   LayoutChangeEvent,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -11,6 +12,9 @@ import {
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { RADIUS } from "../theme/tokens";
+
+export const SheetDraggingContext = createContext(false);
+export function useSheetDragging() { return useContext(SheetDraggingContext); }
 
 type TabKey = "home" | "work" | "recent" | "safety";
 
@@ -40,18 +44,14 @@ export default function SwipeableSheet({
     return () => sub.remove();
   }, []);
 
-  // Measure content height (everything below the handle)
   const [contentH, setContentH] = useState(260);
   const contentHRef = useRef(contentH);
 
   const onContentLayout = (e: LayoutChangeEvent) => {
     const h = Math.ceil(e.nativeEvent.layout.height);
     if (h <= 0) return;
-
-    // ✅ ignore tiny 1-2px fluctuations that cause "vibration"
     const prev = contentHRef.current;
     if (Math.abs(h - prev) < 6) return;
-
     contentHRef.current = h;
     setContentH(h);
   };
@@ -59,8 +59,7 @@ export default function SwipeableSheet({
   const sheetHeight = useMemo(() => {
     const desired = handleHeight + contentH;
     const capByMax = Math.min(desired, maxHeight);
-    const capByScreen = Math.min(capByMax, Math.max(vh - 24, handleHeight));
-    return capByScreen;
+    return Math.min(capByMax, Math.max(vh - 24, handleHeight));
   }, [handleHeight, contentH, maxHeight, vh]);
 
   const collapsedTranslate = useMemo(
@@ -71,25 +70,26 @@ export default function SwipeableSheet({
   const expandedTranslate = useMemo(() => {
     const minTranslate = Math.max(topGap, 0);
     const topAtZero = vh - sheetHeight - 12;
-
     if (topAtZero >= minTranslate) return 0;
-
     const neededDown = minTranslate - topAtZero;
     return Math.min(neededDown, collapsedTranslate);
   }, [topGap, vh, sheetHeight, collapsedTranslate]);
 
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
 
-  // ✅ Start at correct position immediately
   const translateY = useRef(
     new Animated.Value(defaultExpanded ? expandedTranslate : collapsedTranslate)
   ).current;
 
-  // ✅ SINGLE source of truth for snapping (no double-spring)
+  // Track current offset for pan responder
+  const currentTranslateY = useRef(defaultExpanded ? expandedTranslate : collapsedTranslate);
+
+  // Sync animated value when snap targets change
   useEffect(() => {
     const toValue = expanded ? expandedTranslate : collapsedTranslate;
-
-    // stop any running animation before starting a new one
+    currentTranslateY.current = toValue;
     translateY.stopAnimation(() => {
       Animated.spring(translateY, {
         toValue,
@@ -101,9 +101,72 @@ export default function SwipeableSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, collapsedTranslate, expandedTranslate]);
 
+  // Refs so the PanResponder closure always sees the latest snap values
+  const expandedTranslateRef = useRef(expandedTranslate);
+  const collapsedTranslateRef = useRef(collapsedTranslate);
+  useEffect(() => { expandedTranslateRef.current = expandedTranslate; }, [expandedTranslate]);
+  useEffect(() => { collapsedTranslateRef.current = collapsedTranslate; }, [collapsedTranslate]);
+
+  const [dragging, setDragging] = useState(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gs) =>
+        Math.abs(gs.dy) > 4 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onMoveShouldSetPanResponderCapture: (_, gs) =>
+        Math.abs(gs.dy) > 8 && Math.abs(gs.dy) > Math.abs(gs.dx) * 1.5,
+
+      onPanResponderGrant: () => {
+        setDragging(true);
+        translateY.stopAnimation((val) => {
+          currentTranslateY.current = val;
+          translateY.setValue(val);
+        });
+      },
+
+      onPanResponderMove: (_, gs) => {
+        const next = currentTranslateY.current + gs.dy;
+        const clamped = Math.max(
+          expandedTranslateRef.current,
+          Math.min(collapsedTranslateRef.current, next)
+        );
+        translateY.setValue(clamped);
+      },
+
+      onPanResponderRelease: (_, gs) => {
+        setDragging(false);
+        const velocity = gs.vy;
+        const current = currentTranslateY.current + gs.dy;
+        const midpoint = (expandedTranslateRef.current + collapsedTranslateRef.current) / 2;
+
+        let shouldExpand: boolean;
+        if (Math.abs(velocity) > 0.5) {
+          shouldExpand = velocity < 0;
+        } else {
+          shouldExpand = current < midpoint;
+        }
+
+        setExpanded(shouldExpand);
+        const toValue = shouldExpand ? expandedTranslateRef.current : collapsedTranslateRef.current;
+        currentTranslateY.current = toValue;
+
+        Animated.spring(translateY, {
+          toValue,
+          useNativeDriver: true,
+          tension: 120,
+          friction: 18,
+          velocity,
+        }).start();
+      },
+
+      onPanResponderTerminate: () => {
+        setDragging(false);
+      },
+    })
+  ).current;
+
   const toggle = () => setExpanded((p) => !p);
 
-  // ---------------- Tabs ----------------
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const setTab = (tab: TabKey) => {
     setActiveTab(tab);
@@ -128,7 +191,9 @@ export default function SwipeableSheet({
           transform: [{ translateY }],
         },
       ]}
+      {...panResponder.panHandlers}
     >
+      {/* Handle — tappable for toggle, also covered by pan responder */}
       <Pressable
         onPress={toggle}
         style={[
@@ -161,7 +226,9 @@ export default function SwipeableSheet({
           })}
         </View>
 
-        {children}
+        <SheetDraggingContext.Provider value={dragging}>
+          {children}
+        </SheetDraggingContext.Provider>
       </View>
     </Animated.View>
   );
