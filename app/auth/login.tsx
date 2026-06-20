@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
@@ -10,7 +11,7 @@ import TextField from "../../src/components/TextField";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import RoleCard from "../../src/components/RoleCard";
 import TermsModal from "../../src/components/TermsModal";
-import { COLORS, SPACE } from "../../src/theme/tokens";
+import { COLORS, RADIUS, SPACE } from "../../src/theme/tokens";
 import { registerUser, loginUser } from "../../src/lib/auth";
 
 type Mode = "login" | "register";
@@ -33,7 +34,8 @@ export default function LoginScreen() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [cellphone, setCellphone] = useState("");
-  const [dob, setDob] = useState("");
+  const [dob, setDob] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // register - role
   const [role, setRole] = useState<Role>(null);
@@ -56,7 +58,7 @@ export default function LoginScreen() {
     if (!username.trim() || !password || !confirm) return false;
     if (password !== confirm) return false;
     if (!firstName.trim() || !lastName.trim()) return false;
-    if (!email.trim() || !cellphone.trim() || !dob.trim()) return false;
+    if (!email.trim() || !cellphone.trim() || !dob) return false;
     if (!role) return false;
     if (isDriver) {
       if (!licenseNumber.trim() || !vehicleMake.trim() || !vehicleModel.trim() || !licensePlate.trim()) {
@@ -90,27 +92,13 @@ export default function LoginScreen() {
     setSubmitError(null);
   };
 
-  // Converts "DD/MM/YYYY" -> "YYYY-MM-DD" for Postgres. Returns null if invalid.
-  const toIsoDate = (input: string): string | null => {
-    const match = input.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!match) return null;
-    const [, dd, mm, yyyy] = match;
-    const day = Number(dd);
-    const month = Number(mm);
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
   const handleSubmit = async () => {
     if (!canContinue || submitting) return;
     setSubmitError(null);
 
     if (isRegister) {
-      const isoDob = toIsoDate(dob);
-      if (!isoDob) {
-        setSubmitError("Please enter date of birth as DD/MM/YYYY.");
-        return;
-      }
+      // Derive ISO date string directly from the Date object — no manual parsing needed
+      const isoDob = dob!.toISOString().split("T")[0]; // "YYYY-MM-DD"
 
       setSubmitting(true);
       try {
@@ -205,7 +193,35 @@ export default function LoginScreen() {
                 <TextField label="Last Name" placeholder="Last name" value={lastName} onChangeText={setLastName} autoCapitalize="words" />
                 <TextField label="Email" placeholder="you@example.com" value={email} onChangeText={setEmail} keyboardType="email-address" />
                 <TextField label="Cellphone" placeholder="082 123 4567" value={cellphone} onChangeText={setCellphone} keyboardType="phone-pad" />
-                <TextField label="Date of Birth" placeholder="DD/MM/YYYY" value={dob} onChangeText={setDob} keyboardType="numeric" />
+
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Date of Birth</Text>
+                  <Pressable
+                    onPress={() => setShowDatePicker(true)}
+                    style={styles.dateBtn}
+                  >
+                    <Text style={[styles.dateBtnTxt, !dob && { color: COLORS.textFaint }]}>
+                      {dob
+                        ? dob.toLocaleDateString("en-ZA", { day: "2-digit", month: "long", year: "numeric" })
+                        : "Select date of birth"}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={18} color={COLORS.textFaint} />
+                  </Pressable>
+                </View>
+
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={dob ?? new Date(2000, 0, 1)}
+                    mode="date"
+                    display="default"
+                    maximumDate={new Date()}
+                    minimumDate={new Date(1920, 0, 1)}
+                    onChange={(_, selected) => {
+                      setShowDatePicker(false);
+                      if (selected) setDob(selected);
+                    }}
+                  />
+                )}
 
                 <Text style={[styles.label, { marginTop: SPACE.sm }]}>I want to</Text>
                 <View style={styles.roleRow}>
@@ -360,5 +376,21 @@ const styles = StyleSheet.create({
     marginTop: SPACE.sm,
     fontWeight: "700",
     textAlign: "center",
+  },
+  dateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(0,0,0,0.65)",
+    borderRadius: RADIUS.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  dateBtnTxt: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
