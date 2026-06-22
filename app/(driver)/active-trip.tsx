@@ -16,6 +16,9 @@ import {
 
 const STYLE_URL = "mapbox://styles/thandoluphoko9/cmauq6ss2001p01r20y0g444v";
 
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
+if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);
+
 // Simulates the driver moving from pickup toward destination in small steps.
 // Returns an array of [lng, lat] waypoints interpolated between two points.
 function interpolateWaypoints(

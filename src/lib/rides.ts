@@ -2,6 +2,14 @@ import { supabase } from "./supabase";
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
 
+export type RideTier = "economy" | "comfort" | "xl";
+
+export const TIER_CONFIG: Record<RideTier, { label: string; multiplier: number; description: string; icon: string }> = {
+  economy:  { label: "Economy",  multiplier: 1.0, description: "Affordable everyday rides", icon: "car-outline" },
+  comfort:  { label: "Comfort",  multiplier: 1.5, description: "Newer cars, more comfort",  icon: "car-sport-outline" },
+  xl:       { label: "XL",       multiplier: 2.0, description: "Larger vehicle, more space", icon: "bus-outline" },
+};
+
 export type RideStatus =
   | "requested"
   | "accepted"
@@ -29,6 +37,7 @@ export type Ride = {
   actual_distance_km: number | null;
   actual_duration_min: number | null;
   demand_multiplier: number;
+  ride_tier: RideTier;
   estimated_fare_cents: number | null;
   final_fare_cents: number | null;
   cancellation_fee_cents: number | null;
@@ -167,6 +176,7 @@ export async function requestRide(params: {
   destinationLng: number;
   estimatedDistanceKm: number;
   estimatedDurationMin: number;
+  rideTier: RideTier;
 }): Promise<Ride> {
   const { data, error } = await supabase.rpc("request_ride", {
     pickup_label_in: params.pickupLabel,
@@ -179,6 +189,7 @@ export async function requestRide(params: {
     destination_lng_in: params.destinationLng,
     estimated_distance_km_in: params.estimatedDistanceKm,
     estimated_duration_min_in: params.estimatedDurationMin,
+    ride_tier_in: params.rideTier,
   });
   if (error) throw error;
   return data as Ride;
@@ -289,4 +300,60 @@ export function statusLabel(status: RideStatus): string {
     case "completed": return "Trip completed";
     case "cancelled": return "Trip cancelled";
   }
+}
+
+// ============================================
+// TRIP SLIPS
+// ============================================
+export type TripSlip = {
+  id: string;
+  ride_id: string;
+  rider_id: string;
+  driver_id: string | null;
+  rider_name: string;
+  driver_name: string | null;
+  driver_username: string | null;
+  ride_tier: RideTier;
+  pickup_address: string;
+  destination_address: string;
+  actual_distance_km: number | null;
+  actual_duration_min: number | null;
+  base_fare_cents: number | null;
+  tier_multiplier: number | null;
+  demand_multiplier: number | null;
+  booking_fee_cents: number | null;
+  final_fare_cents: number | null;
+  currency: string;
+  trip_status: string;
+  cancellation_fee_cents: number | null;
+  cancelled_by: string | null;
+  requested_at: string | null;
+  trip_started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+export async function getTripSlip(rideId: string): Promise<TripSlip | null> {
+  const { data, error } = await supabase
+    .from("trip_slips")
+    .select("*")
+    .eq("ride_id", rideId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function getTripSlipHistory(limit = 20): Promise<TripSlip[]> {
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user.id;
+  if (!userId) return [];
+
+  const { data, error } = await supabase
+    .from("trip_slips")
+    .select("*")
+    .or(`rider_id.eq.${userId},driver_id.eq.${userId}`)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
 }
