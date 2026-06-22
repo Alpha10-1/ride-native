@@ -10,10 +10,21 @@ import PrimaryButton from "../../src/components/PrimaryButton";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import {
   Ride, getRideById, subscribeToRide, cancelRide,
-  formatFare, statusLabel,
+  formatFare, statusLabel, TIER_CONFIG,
 } from "../../src/lib/rides";
 
 const STYLE_URL = "mapbox://styles/thandoluphoko9/cmauq6ss2001p01r20y0g444v";
+
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
+if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);
+
+function etaMinutes(ride: Ride): number | null {
+  if (!ride.accepted_at) return null;
+  if (ride.status === "driver_arrived" || ride.status === "in_progress") return 0;
+  const elapsed = (Date.now() - new Date(ride.accepted_at).getTime()) / 60000;
+  const est = (ride.estimated_duration_min ?? 10) * 0.4;
+  return Math.max(0, Math.round(est - elapsed));
+}
 
 export default function RideTrackingScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
@@ -21,20 +32,15 @@ export default function RideTrackingScreen() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
-  // Initial load
   useEffect(() => {
     if (!rideId) return;
-    getRideById(rideId).then((r) => {
-      if (r) setRide(r);
-    });
+    getRideById(rideId).then((r) => { if (r) setRide(r); });
   }, [rideId]);
 
-  // Realtime subscription
   useEffect(() => {
     if (!rideId) return;
     const unsub = subscribeToRide(rideId, (updated) => {
       setRide(updated);
-      // Navigate to completion screen when trip ends
       if (updated.status === "completed" || updated.status === "cancelled") {
         router.replace({ pathname: "/(rider)/ride-complete", params: { rideId } });
       }
@@ -42,7 +48,7 @@ export default function RideTrackingScreen() {
     return unsub;
   }, [rideId]);
 
-  // Keep camera on driver when they move
+  // Fly to driver location when it updates
   useEffect(() => {
     if (ride?.driver_lat && ride?.driver_lng) {
       cameraRef.current?.setCamera?.({
@@ -58,13 +64,12 @@ export default function RideTrackingScreen() {
     Alert.alert(
       "Cancel Ride",
       ride?.status !== "requested"
-        ? "A cancellation fee may apply since the driver has already been assigned."
+        ? "A cancellation fee may apply since your driver is already on the way."
         : "Cancel your ride request?",
       [
         { text: "Keep ride", style: "cancel" },
         {
-          text: "Cancel ride",
-          style: "destructive",
+          text: "Cancel ride", style: "destructive",
           onPress: async () => {
             setCancelling(true);
             try {
@@ -91,6 +96,8 @@ export default function RideTrackingScreen() {
   }
 
   const canCancel = !["in_progress", "completed", "cancelled"].includes(ride.status);
+  const eta = etaMinutes(ride);
+  const tierCfg = TIER_CONFIG[ride.ride_tier ?? "economy"];
 
   return (
     <Screen>
@@ -98,20 +105,17 @@ export default function RideTrackingScreen() {
         <Mapbox.MapView style={StyleSheet.absoluteFill} styleURL={STYLE_URL}>
           <Mapbox.Camera
             ref={cameraRef}
-            defaultSettings={{
-              centerCoordinate: [ride.pickup_lng, ride.pickup_lat],
-              zoomLevel: 14,
-            }}
+            defaultSettings={{ centerCoordinate: [ride.pickup_lng, ride.pickup_lat], zoomLevel: 14 }}
           />
 
-          {/* Pickup marker */}
+          {/* Pickup */}
           <Mapbox.PointAnnotation id="pickup" coordinate={[ride.pickup_lng, ride.pickup_lat]}>
             <View style={styles.markerPickup}>
               <Ionicons name="ellipse" size={10} color="#000" />
             </View>
           </Mapbox.PointAnnotation>
 
-          {/* Destination marker */}
+          {/* Destination */}
           <Mapbox.PointAnnotation id="dest" coordinate={[ride.destination_lng, ride.destination_lat]}>
             <View style={styles.markerDest}>
               <Ionicons name="location" size={26} color={COLORS.red} />
@@ -131,11 +135,23 @@ export default function RideTrackingScreen() {
         {/* Status panel */}
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>
-            <Text style={styles.statusText}>{statusLabel(ride.status)}</Text>
+            <View style={styles.statusRow}>
+              <View>
+                <Text style={styles.statusText}>{statusLabel(ride.status)}</Text>
+                {eta !== null && ride.status !== "in_progress" && (
+                  <Text style={styles.etaTxt}>
+                    {eta === 0 ? "Driver is here" : `~${eta} min away`}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.tierBadge}>
+                <Ionicons name={tierCfg.icon as any} size={14} color={COLORS.red} />
+                <Text style={styles.tierBadgeTxt}>{tierCfg.label}</Text>
+              </View>
+            </View>
+
             {ride.estimated_fare_cents ? (
-              <Text style={styles.fareText}>
-                Est. {formatFare(ride.estimated_fare_cents)}
-              </Text>
+              <Text style={styles.fareText}>Est. {formatFare(ride.estimated_fare_cents)}</Text>
             ) : null}
           </GlassCard>
 
@@ -168,20 +184,23 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   centerFill: { flex: 1, alignItems: "center", justifyContent: "center" },
   panel: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
+    position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: "#070707",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
-    padding: SPACE.md,
-    paddingBottom: SPACE.xl,
-    gap: SPACE.sm,
+    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)",
+    padding: SPACE.md, paddingBottom: SPACE.xl, gap: SPACE.sm,
   },
-  statusCard: { alignItems: "center", paddingVertical: SPACE.md },
-  statusText: { color: COLORS.text, fontWeight: "900", fontSize: 18 },
-  fareText: { color: COLORS.textDim, fontSize: 13, marginTop: 4 },
+  statusCard: { gap: SPACE.xs },
+  statusRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  statusText: { color: COLORS.text, fontWeight: "900", fontSize: 17 },
+  etaTxt: { color: COLORS.textDim, fontSize: 13, marginTop: 2 },
+  fareText: { color: COLORS.textFaint, fontSize: 12 },
+  tierBadge: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(255,46,46,0.1)",
+    borderRadius: RADIUS.pill, paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: "rgba(255,46,46,0.25)",
+  },
+  tierBadgeTxt: { color: COLORS.red, fontWeight: "800", fontSize: 12 },
   tripDetails: { gap: 4 },
   detailRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
   detailText: { flex: 1, color: COLORS.textDim, fontSize: 13 },
@@ -196,8 +215,8 @@ const styles = StyleSheet.create({
   },
   markerDest: { alignItems: "center" },
   driverDot: {
-    width: 32, height: 32, borderRadius: 16,
+    width: 34, height: 34, borderRadius: 17,
     backgroundColor: COLORS.text, alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: COLORS.red,
+    borderWidth: 2.5, borderColor: COLORS.red,
   },
 });
