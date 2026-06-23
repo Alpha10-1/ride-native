@@ -197,6 +197,8 @@ export async function redirectAfterAuth() {
     router.replace("/auth/role");
   }
 }
+
+export async function deleteAccount() {
   const { error } = await supabase.rpc("delete_own_account");
   if (error) throw error;
 
@@ -209,6 +211,7 @@ export async function redirectAfterAuth() {
   } catch {
     // ignore: local session cleanup is best-effort once the account is gone
   }
+}
 
 export async function logout() {
   const { error } = await supabase.auth.signOut();
