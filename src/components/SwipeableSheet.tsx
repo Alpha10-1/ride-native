@@ -6,6 +6,7 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -176,10 +177,10 @@ export default function SwipeableSheet({
   const ICON_COLOR = "#ff2e2e";
 
   const tabs: Array<{ key: TabKey; label: string; icon: any }> = [
+    { key: "safety", label: "Safety", icon: "shield-check-outline" },
     { key: "home", label: "Home", icon: "home-variant" },
     { key: "work", label: "Work", icon: "briefcase-outline" },
     { key: "recent", label: "Recent", icon: "clock-outline" },
-    { key: "safety", label: "Safety", icon: "shield-check-outline" },
   ];
 
   return (
@@ -208,7 +209,11 @@ export default function SwipeableSheet({
       </Pressable>
 
       <View onLayout={onContentLayout} style={styles.content}>
-        <View style={styles.tabsRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsRow}
+        >
           {tabs.map((t) => {
             const active = activeTab === t.key;
             return (
@@ -224,7 +229,7 @@ export default function SwipeableSheet({
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
 
         <SheetDraggingContext.Provider value={dragging}>
           {children}
@@ -269,6 +274,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     paddingBottom: 2,
+    paddingRight: 8,
   },
   tabBtn: {
     flexDirection: "row",

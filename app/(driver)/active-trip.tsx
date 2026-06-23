@@ -14,7 +14,7 @@ import {
   updateDriverLocation, formatFare, statusLabel,
 } from "../../src/lib/rides";
 
-const STYLE_URL = "mapbox://styles/thandoluphoko9/cmauq6ss2001p01r20y0g444v";
+const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
 if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);

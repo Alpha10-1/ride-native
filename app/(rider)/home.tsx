@@ -20,7 +20,7 @@ import { reverseGeocode } from "../../src/lib/geocoding";
 import { getRoute, requestRide, formatFare, demandLabel, TIER_CONFIG, RideTier } from "../../src/lib/rides";
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
-const STYLE_URL = "mapbox://styles/thandoluphoko9/cmauq6ss2001p01r20y0g444v";
+const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
 const DEFAULT_CENTER: [number, number] = [28.0473, -26.2041];
 
 // Initialize Mapbox token before any MapView mounts
@@ -152,26 +152,21 @@ export default function RiderHome() {
 
   const confirmSearchResult = (result: SearchResult) => {
     const point: LocationPoint = { label: result.name, address: result.address, lat: result.lat, lng: result.lng };
-    if (activeField === "pickup") setPickup(point); else setDestination(point);
+    if (activeField === "pickup") { setPickup(point); setStep("input_destination"); setActiveField("destination"); }
+    else { setDestination(point); setSearchQuery(""); setSearchResults([]); if (pickup) setStep("tiers"); else { setStep("input_pickup"); setActiveField("pickup"); } }
     setSearchQuery("");
     setSearchResults([]);
-    if (activeField === "destination" && pickup) {
-      setStep("tiers");
-    } else {
-      setStep("input_destination");
-      setActiveField("destination");
-    }
   };
 
-  const confirmSavedPlace = (place: SavedPlace) => {
+  // forceField lets sheet quick-chips always set destination regardless of activeField
+  const confirmSavedPlace = (place: SavedPlace, forceField?: "pickup" | "destination") => {
+    const field = forceField ?? activeField;
     const point: LocationPoint = { label: place.label, address: place.address, lat: place.latitude, lng: place.longitude };
-    if (activeField === "pickup") setPickup(point); else setDestination(point);
-    setSearchQuery("");
-    if (activeField === "destination" && pickup) setStep("tiers");
-    else { setStep("input_destination"); setActiveField("destination"); }
+    if (field === "pickup") { setPickup(point); setStep("input_destination"); setActiveField("destination"); }
+    else { setDestination(point); if (pickup) setStep("tiers"); else { setStep("input_pickup"); setActiveField("pickup"); } }
   };
 
-  // When user taps Home tab — auto-fill destination with saved home
+  // Home/Work tabs always set DESTINATION — pickup is handled separately
   const handleHomeTab = () => {
     const home = savedPlaces.find((p) => p.kind === "home");
     if (home) {
@@ -471,6 +466,13 @@ export default function RiderHome() {
               )}
             />
 
+            {/* Confirm button — visible when both pickup and destination are set */}
+            {pickup && destination && (
+              <Pressable onPress={() => setStep("tiers")} style={styles.confirmRouteBtn}>
+                <Text style={styles.confirmRouteTxt}>Confirm Route</Text>
+              </Pressable>
+            )}
+
             <Pressable onPress={() => setStep("sheet")} style={styles.cancelBtn}>
               <Text style={styles.cancelTxt}>Cancel</Text>
             </Pressable>
@@ -644,6 +646,18 @@ const styles = StyleSheet.create({
   suggestionAddr: { color: COLORS.textDim, fontSize: 12, marginTop: 2 },
 
   // Cancel
+  confirmRouteBtn: {
+    height: 48,
+    borderRadius: RADIUS.xl,
+    backgroundColor: COLORS.red,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmRouteTxt: {
+    color: "#000",
+    fontWeight: "900",
+    fontSize: 15,
+  },
   cancelBtn: { alignItems: "center", paddingVertical: 8 },
   cancelTxt: { color: COLORS.red, fontWeight: "700", fontSize: 14 },
 

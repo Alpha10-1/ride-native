@@ -77,7 +77,7 @@ export default function RiderMap({ centerCoordinate, zoomLevel = 14 }: Props) {
     <View style={styles.root}>
       <Mapbox.MapView
         style={styles.map}
-        styleURL="mapbox://styles/thandoluphoko9/cmauq6ss2001p01r20y0g444v"
+        styleURL="mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7"
       >
         <Mapbox.Camera
           ref={cameraRef}
