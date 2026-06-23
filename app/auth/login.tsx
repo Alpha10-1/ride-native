@@ -12,7 +12,7 @@ import PrimaryButton from "../../src/components/PrimaryButton";
 import RoleCard from "../../src/components/RoleCard";
 import TermsModal from "../../src/components/TermsModal";
 import { COLORS, RADIUS, SPACE } from "../../src/theme/tokens";
-import { registerUser, loginUser } from "../../src/lib/auth";
+import { registerUser, loginUser, redirectAfterAuth } from "../../src/lib/auth";
 
 type Mode = "login" | "register";
 type Role = "rider" | "driver" | null;
@@ -116,7 +116,7 @@ export default function LoginScreen() {
           vehicleModel,
           licensePlate,
         });
-        router.replace("/auth/role");
+        await redirectAfterAuth();
       } catch (e: any) {
         const message = e?.message ?? "Something went wrong creating your account.";
         if (message.toLowerCase().includes("already registered")) {
@@ -131,7 +131,7 @@ export default function LoginScreen() {
       setSubmitting(true);
       try {
         await loginUser(username, password);
-        router.replace("/auth/role");
+        await redirectAfterAuth();
       } catch (e: any) {
         setSubmitError(e?.message ?? "Something went wrong signing in.");
       } finally {

@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { Text, StyleSheet, ScrollView } from "react-native";
 import { router } from "expo-router";
 
 import Screen from "../../src/components/Screen";
@@ -7,10 +7,10 @@ import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import RiderHeader from "../../src/components/RiderHeader";
 import GlassCard from "../../src/components/GlassCard";
 import RowItem from "../../src/components/RowItem";
-import { ScrollView } from "react-native";
 import { COLORS, SPACE } from "../../src/theme/tokens";
+import { logout } from "../../src/lib/auth";
 
-export default function RiderSettings() {
+export default function DriverSettings() {
   const [menuOpen, setMenuOpen] = React.useState(false);
   return (
     <Screen>
@@ -27,21 +27,22 @@ export default function RiderSettings() {
         <GlassCard>
           <Text style={styles.kicker}>MANAGE YOUR ACCOUNT</Text>
           <Text style={styles.sub}>
-            Profile, safety, payments and preferences — all in one place.
+            Profile, vehicle, payouts and preferences — all in one place.
           </Text>
         </GlassCard>
 
         <Text style={styles.section}>Account</Text>
-        <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(rider)/profile")} />
-        <RowItem icon="bookmark-outline" title="Saved places" subtitle="Home, Work, favourites" onPress={() => router.push("/(rider)/saved-places")} />
+        <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(driver)/profile")} />
+        <RowItem icon="car-outline" title="Vehicle details" subtitle="Make, model, plate" onPress={() => router.push("/(driver)/profile")} />
+        <RowItem icon="document-text-outline" title="Documents" subtitle="License, insurance" onPress={() => {}} />
 
-        <Text style={styles.section}>Payments</Text>
-        <RowItem icon="card-outline" title="Payments" subtitle="Cash / card options" onPress={() => {}} />
-        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Vouchers & deals" onPress={() => router.push("/(rider)/promotions")} />
+        <Text style={styles.section}>Payouts</Text>
+        <RowItem icon="wallet-outline" title="Earnings" subtitle="Balance & history" onPress={() => router.push("/(driver)/wallet")} />
+        <RowItem icon="card-outline" title="Payout method" subtitle="Bank account" onPress={() => {}} />
+        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Driver bonuses" onPress={() => router.push("/(driver)/promotions")} />
 
         <Text style={styles.section}>Safety</Text>
         <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => {}} />
-        <RowItem icon="key-outline" title="Trip PIN" subtitle="Extra verification" onPress={() => {}} />
 
         <Text style={styles.section}>Preferences</Text>
         <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => router.push("/(rider)/notifications-settings")} />
@@ -53,20 +54,19 @@ export default function RiderSettings() {
 
         <Text style={[styles.section, { color: COLORS.red }]}>Session</Text>
         <RowItem
-            icon="log-out-outline"
-            title="Log out"
-            subtitle="Sign out of your account"
-            danger
-            onPress={() => router.replace("/auth/login")}
+          icon="log-out-outline"
+          title="Log out"
+          subtitle="Sign out of your account"
+          danger
+          onPress={() => logout().finally(() => router.replace("/auth/login"))}
         />
       </ScrollView>
-      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />
+      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="driver" />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: SPACE.md, gap: SPACE.sm, paddingBottom: 120 },
   kicker: {
     color: COLORS.textDim,
     fontSize: 11,

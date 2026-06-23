@@ -14,6 +14,7 @@ import { router } from "expo-router";
 
 import RowItem from "./RowItem";
 import { COLORS, RADIUS, SPACE } from "../theme/tokens";
+import { logout } from "../lib/auth";
 
 function BecomeDriverBanner({ onPress }: { onPress: () => void }) {
   return (
@@ -158,6 +159,18 @@ export default function SideMenuDrawer({
             }}
           />
 
+          {!isDriver && (
+            <RowItem
+              title="Trip History"
+              subtitle="Past rides & receipts"
+              icon="time-outline"
+              onPress={() => {
+                onClose();
+                router.push("/(rider)/trip-history");
+              }}
+            />
+          )}
+
           <RowItem
             title={isDriver ? "Earnings" : "Ride credits"}
             subtitle={isDriver ? "Wallet & payouts" : "Wallet & credits"}
@@ -196,7 +209,7 @@ export default function SideMenuDrawer({
             showChevron={false}
             onPress={() => {
               onClose();
-              router.replace("/auth/login");
+              logout().finally(() => router.replace("/auth/login"));
             }}
           />
         </ScrollView>

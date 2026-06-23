@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { router } from "expo-router";
 
 // Supabase Auth requires an email. Since this app authenticates by username,
 // we synthesize an internal address the user never sees or types.
@@ -179,7 +180,23 @@ export async function updatePreferences(payload: {
 // Permanently deletes the current user's account and all associated data
 // (profile, wallet, saved places, redeemed promotions cascade automatically
 // via foreign key constraints). This cannot be undone.
-export async function deleteAccount() {
+export async function redirectAfterAuth() {
+  try {
+    const profile = await getCurrentProfile();
+    if (!profile) {
+      router.replace("/auth/login");
+      return;
+    }
+    if (profile.role === "driver") {
+      router.replace("/(driver)/home");
+    } else {
+      router.replace("/(rider)/home");
+    }
+  } catch {
+    // Profile fetch failed — fall back to manual role picker
+    router.replace("/auth/role");
+  }
+}
   const { error } = await supabase.rpc("delete_own_account");
   if (error) throw error;
 
@@ -192,7 +209,6 @@ export async function deleteAccount() {
   } catch {
     // ignore: local session cleanup is best-effort once the account is gone
   }
-}
 
 export async function logout() {
   const { error } = await supabase.auth.signOut();
