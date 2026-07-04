@@ -73,3 +73,50 @@ export function formatCents(cents: number, currency = "ZAR") {
     currency,
   }).format(amount);
 }
+
+export type EarningsSummary = {
+  todayCents: number;
+  weekCents: number;
+  lifetimeCents: number;
+  tripsToday: number;
+  tripsWeek: number;
+  tripsLifetime: number;
+};
+
+// Derives today/this-week/lifetime earnings + trip counts from
+// wallet_transactions. There's no dedicated earnings-reporting table, so we
+// pull recent transactions and aggregate client-side — fine at demo volume.
+export async function getEarningsSummary(): Promise<EarningsSummary> {
+  const transactions = await getWalletTransactions(500);
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+
+  let todayCents = 0;
+  let weekCents = 0;
+  let lifetimeCents = 0;
+  let tripsToday = 0;
+  let tripsWeek = 0;
+  let tripsLifetime = 0;
+
+  for (const tx of transactions) {
+    if (tx.kind !== "earning") continue;
+    const created = new Date(tx.created_at);
+
+    lifetimeCents += tx.amount_cents;
+    tripsLifetime += 1;
+
+    if (created >= startOfWeek) {
+      weekCents += tx.amount_cents;
+      tripsWeek += 1;
+      if (created >= startOfToday) {
+        todayCents += tx.amount_cents;
+        tripsToday += 1;
+      }
+    }
+  }
+
+  return { todayCents, weekCents, lifetimeCents, tripsToday, tripsWeek, tripsLifetime };
+}

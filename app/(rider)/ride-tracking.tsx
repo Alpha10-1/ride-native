@@ -31,10 +31,24 @@ export default function RideTrackingScreen() {
   const cameraRef = useRef<Mapbox.Camera>(null);
   const [ride, setRide] = useState<Ride | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!rideId) return;
-    getRideById(rideId).then((r) => { if (r) setRide(r); });
+    if (!rideId) {
+      setError("No ride reference was passed to this screen.");
+      return;
+    }
+    let cancelled = false;
+    getRideById(rideId)
+      .then((r) => {
+        if (cancelled) return;
+        if (r) setRide(r);
+        else setError("Couldn't find that ride. It may have been removed.");
+      })
+      .catch((e: any) => {
+        if (!cancelled) setError(e?.message ?? "Failed to load ride details.");
+      });
+    return () => { cancelled = true; };
   }, [rideId]);
 
   useEffect(() => {
@@ -84,6 +98,21 @@ export default function RideTrackingScreen() {
       ]
     );
   };
+
+  if (error) {
+    return (
+      <Screen>
+        <View style={styles.centerFill}>
+          <Ionicons name="alert-circle" size={40} color="rgba(255,90,90,0.9)" />
+          <Text style={{ color: COLORS.textDim, marginTop: SPACE.sm, textAlign: "center", paddingHorizontal: SPACE.lg }}>
+            {error}
+          </Text>
+          <View style={{ height: SPACE.md }} />
+          <PrimaryButton label="Back to Home" onPress={() => router.replace("/(rider)/home")} />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!ride) {
     return (

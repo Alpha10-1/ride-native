@@ -12,10 +12,38 @@ import { Ride, getRideById, formatFare } from "../../src/lib/rides";
 export default function DriverTripCompleteScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const [ride, setRide] = useState<Ride | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (rideId) getRideById(rideId).then((r) => { if (r) setRide(r); });
+    if (!rideId) {
+      setError("No ride reference was passed to this screen.");
+      return;
+    }
+    let cancelled = false;
+    getRideById(rideId)
+      .then((r) => {
+        if (cancelled) return;
+        if (r) setRide(r);
+        else setError("Couldn't find that trip. It may have been removed.");
+      })
+      .catch((e: any) => {
+        if (!cancelled) setError(e?.message ?? "Failed to load trip details.");
+      });
+    return () => { cancelled = true; };
   }, [rideId]);
+
+  if (error) {
+    return (
+      <Screen>
+        <View style={styles.centerFill}>
+          <Ionicons name="alert-circle" size={40} color="rgba(255,90,90,0.9)" />
+          <Text style={[styles.subtitle, { marginTop: SPACE.sm }]}>{error}</Text>
+          <View style={{ height: SPACE.md }} />
+          <PrimaryButton label="Back to Dashboard" onPress={() => router.replace("/(driver)/home")} />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!ride) {
     return (
@@ -79,7 +107,7 @@ export default function DriverTripCompleteScreen() {
 
         <PrimaryButton
           label="Find Next Ride"
-          onPress={() => router.replace("/(driver)/requests")}
+          onPress={() => router.replace("/(driver)/home")}
         />
       </ScrollView>
     </Screen>

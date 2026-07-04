@@ -44,11 +44,15 @@ export default function SideMenuDrawer({
   onClose,
   role = "rider",
   widthPct = 0.55,
+  online = false,
+  onToggleOnline,
 }: {
   open: boolean;
   onClose: () => void;
   role?: "rider" | "driver";
   widthPct?: number;
+  online?: boolean;
+  onToggleOnline?: () => void;
 }) {
   const { width: W, height: H } = Dimensions.get("window");
   const panelW = Math.min(Math.max(W * widthPct, 260), 420);
@@ -112,7 +116,7 @@ export default function SideMenuDrawer({
             <BecomeDriverBanner
               onPress={() => {
                 onClose();
-                router.push("/(rider)/become-driver");
+                router.push("/auth/role");
               }}
             />
           )}
@@ -129,12 +133,19 @@ export default function SideMenuDrawer({
 
           {isDriver ? (
             <RowItem
-              title="Go Online"
-              subtitle="Start accepting trips"
-              icon="car-outline"
+              title={online ? "Go Offline" : "Go Online"}
+              subtitle={online ? "Stop accepting trips" : "Start accepting trips"}
+              icon={online ? "power" : "car-outline"}
+              danger={online}
+              showChevron={false}
               onPress={() => {
-                onClose();
-                router.push("/(driver)/requests");
+                if (onToggleOnline) {
+                  onToggleOnline();
+                  onClose();
+                } else {
+                  onClose();
+                  router.push("/(driver)/home");
+                }
               }}
             />
           ) : (
@@ -144,7 +155,7 @@ export default function SideMenuDrawer({
               icon="car-outline"
               onPress={() => {
                 onClose();
-                router.push("/(rider)/booking");
+                router.push("/(rider)/home");
               }}
             />
           )}
@@ -159,17 +170,16 @@ export default function SideMenuDrawer({
             }}
           />
 
-          {!isDriver && (
-            <RowItem
-              title="Trip History"
-              subtitle="Past rides & receipts"
-              icon="time-outline"
-              onPress={() => {
-                onClose();
-                router.push("/(rider)/trip-history");
-              }}
-            />
-          )}
+          <RowItem
+            title="Trip History"
+            subtitle="Past rides & receipts"
+            icon="time-outline"
+            onPress={() => {
+              onClose();
+              router.push(`${base}/trip-history`);
+            }}
+          />
+
 
           <RowItem
             title={isDriver ? "Earnings" : "Ride credits"}

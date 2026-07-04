@@ -14,18 +14,51 @@ export default function RideCompleteScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const [ride, setRide] = useState<Ride | null>(null);
   const [slip, setSlip] = useState<TripSlip | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!rideId) return;
-    getRideById(rideId).then((r) => { if (r) setRide(r); });
+    if (!rideId) {
+      setError("No ride reference was passed to this screen.");
+      return;
+    }
+    let cancelled = false;
+    getRideById(rideId)
+      .then((r) => {
+        if (cancelled) return;
+        if (r) setRide(r);
+        else setError("Couldn't find that trip. It may have been removed.");
+      })
+      .catch((e: any) => {
+        if (!cancelled) setError(e?.message ?? "Failed to load trip details.");
+      });
     // Poll briefly for slip — it's created server-side on completion
     const attempt = async (retries: number) => {
-      const s = await getTripSlip(rideId);
-      if (s) { setSlip(s); return; }
-      if (retries > 0) setTimeout(() => attempt(retries - 1), 1000);
+      try {
+        const s = await getTripSlip(rideId);
+        if (s) { setSlip(s); return; }
+      } catch {
+        // slip may just not exist yet; keep retrying quietly
+      }
+      if (retries > 0 && !cancelled) setTimeout(() => attempt(retries - 1), 1000);
     };
     attempt(5);
+    return () => { cancelled = true; };
   }, [rideId]);
+
+  if (error) {
+    return (
+      <Screen>
+        <View style={styles.centerFill}>
+          <Ionicons name="alert-circle" size={40} color="rgba(255,90,90,0.9)" />
+          <Text style={{ color: COLORS.textDim, marginTop: SPACE.sm, textAlign: "center", paddingHorizontal: SPACE.lg }}>
+            {error}
+          </Text>
+          <View style={{ height: SPACE.md }} />
+          <PrimaryButton label="Back to Home" onPress={() => router.replace("/(rider)/home")} />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!ride) {
     return (

@@ -46,26 +46,39 @@ export default function ActiveTripScreen() {
   const [actionLoading, setActionLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [tripStartTime, setTripStartTime] = useState<Date | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!rideId) return;
-    getRideById(rideId).then((r) => {
-      if (r) {
-        setRide(r);
-        if (r.trip_started_at) setTripStartTime(new Date(r.trip_started_at));
-        // Center map on pickup initially
-        cameraRef.current?.setCamera?.({
-          centerCoordinate: [r.pickup_lng, r.pickup_lat],
-          zoomLevel: 14,
-          animationDuration: 0,
-        });
-      }
-    });
+    if (!rideId) {
+      setError("No ride reference was passed to this screen.");
+      return;
+    }
+    let cancelled = false;
+    getRideById(rideId)
+      .then((r) => {
+        if (cancelled) return;
+        if (r) {
+          setRide(r);
+          if (r.trip_started_at) setTripStartTime(new Date(r.trip_started_at));
+          // Center map on pickup initially
+          cameraRef.current?.setCamera?.({
+            centerCoordinate: [r.pickup_lng, r.pickup_lat],
+            zoomLevel: 14,
+            animationDuration: 0,
+          });
+        } else {
+          setError("Couldn't find that trip. It may have been removed.");
+        }
+      })
+      .catch((e: any) => {
+        if (!cancelled) setError(e?.message ?? "Failed to load trip details.");
+      });
 
     const unsub = subscribeToRide(rideId, (updated) => {
       setRide(updated);
     });
     return () => {
+      cancelled = true;
       unsub();
       if (simulationRef.current) clearInterval(simulationRef.current);
     };
@@ -163,6 +176,21 @@ export default function ActiveTripScreen() {
       },
     ]);
   };
+
+  if (error) {
+    return (
+      <Screen>
+        <View style={styles.centerFill}>
+          <Ionicons name="alert-circle" size={40} color="rgba(255,90,90,0.9)" />
+          <Text style={{ color: COLORS.textDim, marginTop: SPACE.sm, textAlign: "center", paddingHorizontal: SPACE.lg }}>
+            {error}
+          </Text>
+          <View style={{ height: SPACE.md }} />
+          <PrimaryButton label="Back to Dashboard" onPress={() => router.replace("/(driver)/home")} />
+        </View>
+      </Screen>
+    );
+  }
 
   if (!ride) {
     return (
