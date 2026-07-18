@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Alert } from "react-native";
+import { View, Text, StyleSheet, Alert, Linking } from "react-native";
 import Mapbox from "@rnmapbox/maps";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -134,6 +134,37 @@ export default function ActiveTripScreen() {
     }, 1500);
   };
 
+  // Navigation target depends on where the driver is in the trip:
+  // pickup while heading to/waiting for the rider, destination once the
+  // trip is under way.
+  const navTarget = (): { lat: number; lng: number } | null => {
+    if (!ride) return null;
+    if (ride.status === "in_progress") {
+      return { lat: ride.destination_lat, lng: ride.destination_lng };
+    }
+    if (ride.status === "accepted" || ride.status === "driver_en_route" || ride.status === "driver_arrived") {
+      return { lat: ride.pickup_lat, lng: ride.pickup_lng };
+    }
+    return null;
+  };
+
+  const handleNavigate = async () => {
+    const target = navTarget();
+    if (!target) return;
+    const wazeUrl = `waze://?ll=${target.lat},${target.lng}&navigate=yes`;
+    const wazeWebUrl = `https://waze.com/ul?ll=${target.lat},${target.lng}&navigate=yes`;
+    try {
+      const canOpenWaze = await Linking.canOpenURL(wazeUrl);
+      if (canOpenWaze) {
+        await Linking.openURL(wazeUrl);
+      } else {
+        await Linking.openURL(wazeWebUrl);
+      }
+    } catch {
+      Alert.alert("Couldn't open Waze", "Make sure Waze is installed, or open it manually to navigate.");
+    }
+  };
+
   const handleCompleteRide = async () => {
     if (!ride) return;
     setActionLoading(true);
@@ -253,6 +284,14 @@ export default function ActiveTripScreen() {
               <Text style={styles.locationText} numberOfLines={1}>{ride.destination_address}</Text>
             </View>
           </View>
+
+          {/* Turn-by-turn navigation via Waze */}
+          {navTarget() && (
+            <PrimaryButton
+              label="Navigate with Waze"
+              onPress={handleNavigate}
+            />
+          )}
 
           {/* Advance status button */}
           {advanceLabel && (

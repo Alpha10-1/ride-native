@@ -7,11 +7,15 @@ import { router, useLocalSearchParams } from "expo-router";
 import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
+import PulsingDot from "../../src/components/PulsingDot";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
+import { bearing } from "../../src/lib/geo";
 import {
   Ride, getRideById, subscribeToRide, cancelRide,
   formatFare, statusLabel, TIER_CONFIG,
 } from "../../src/lib/rides";
+
+const DRIVER_MOVE_DURATION_MS = 900;
 
 const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
 
@@ -32,6 +36,13 @@ export default function RideTrackingScreen() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Smoothly-animated driver marker position + heading, instead of the dot
+  // jumping straight to each new GPS update.
+  const [driverPos, setDriverPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverBearing, setDriverBearing] = useState(0);
+  const prevDriverPos = useRef<{ lat: number; lng: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!rideId) {
@@ -62,16 +73,49 @@ export default function RideTrackingScreen() {
     return unsub;
   }, [rideId]);
 
-  // Fly to driver location when it updates
+  // Animate the driver marker from its last known spot to the new one
+  // (instead of teleporting), and rotate the car icon to face the
+  // direction of travel — used both while en route to pickup and while
+  // the trip is in progress.
   useEffect(() => {
-    if (ride?.driver_lat && ride?.driver_lng) {
-      cameraRef.current?.setCamera?.({
-        centerCoordinate: [ride.driver_lng, ride.driver_lat],
-        zoomLevel: 15,
-        animationMode: "flyTo",
-        animationDuration: 600,
-      });
+    if (!ride?.driver_lat || !ride?.driver_lng) return;
+    const next = { lat: ride.driver_lat, lng: ride.driver_lng };
+    const prev = prevDriverPos.current;
+
+    if (prev && (prev.lat !== next.lat || prev.lng !== next.lng)) {
+      const dist = Math.hypot(next.lat - prev.lat, next.lng - prev.lng);
+      // Ignore GPS jitter; only re-orient the car on a real move.
+      if (dist > 0.00003) {
+        setDriverBearing(bearing(prev.lat, prev.lng, next.lat, next.lng));
+      }
+
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      const start = Date.now();
+      const tick = () => {
+        const t = Math.min(1, (Date.now() - start) / DRIVER_MOVE_DURATION_MS);
+        setDriverPos({
+          lat: prev.lat + (next.lat - prev.lat) * t,
+          lng: prev.lng + (next.lng - prev.lng) * t,
+        });
+        if (t < 1) rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } else {
+      setDriverPos(next);
     }
+
+    prevDriverPos.current = next;
+
+    cameraRef.current?.setCamera?.({
+      centerCoordinate: [next.lng, next.lat],
+      zoomLevel: 15,
+      animationMode: "flyTo",
+      animationDuration: 600,
+    });
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, [ride?.driver_lat, ride?.driver_lng]);
 
   const handleCancel = () => {
@@ -137,10 +181,17 @@ export default function RideTrackingScreen() {
             defaultSettings={{ centerCoordinate: [ride.pickup_lng, ride.pickup_lat], zoomLevel: 14 }}
           />
 
-          {/* Pickup */}
+          {/* Pickup — pulses while we're still searching for a driver */}
           <Mapbox.PointAnnotation id="pickup" coordinate={[ride.pickup_lng, ride.pickup_lat]}>
-            <View style={styles.markerPickup}>
-              <Ionicons name="ellipse" size={10} color="#000" />
+            <View style={styles.markerPickupWrap}>
+              {ride.status === "requested" && (
+                <View style={styles.pulseWrap} pointerEvents="none">
+                  <PulsingDot color={COLORS.red} size={12} />
+                </View>
+              )}
+              <View style={styles.markerPickup}>
+                <Ionicons name="ellipse" size={10} color="#000" />
+              </View>
             </View>
           </Mapbox.PointAnnotation>
 
@@ -151,11 +202,16 @@ export default function RideTrackingScreen() {
             </View>
           </Mapbox.PointAnnotation>
 
-          {/* Driver dot */}
-          {ride.driver_lat && ride.driver_lng && (
-            <Mapbox.PointAnnotation id="driver" coordinate={[ride.driver_lng, ride.driver_lat]}>
-              <View style={styles.driverDot}>
-                <Ionicons name="car" size={14} color="#000" />
+          {/* Driver — animates smoothly between updates and rotates to face
+              its direction of travel toward pickup/destination. */}
+          {driverPos && (
+            <Mapbox.PointAnnotation
+              id="driver"
+              coordinate={[driverPos.lng, driverPos.lat]}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={[styles.driverDot, { transform: [{ rotate: `${driverBearing}deg` }] }]}>
+                <Ionicons name="navigate" size={16} color="#000" />
               </View>
             </Mapbox.PointAnnotation>
           )}
@@ -165,13 +221,20 @@ export default function RideTrackingScreen() {
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>
             <View style={styles.statusRow}>
-              <View>
-                <Text style={styles.statusText}>{statusLabel(ride.status)}</Text>
-                {eta !== null && ride.status !== "in_progress" && (
-                  <Text style={styles.etaTxt}>
-                    {eta === 0 ? "Driver is here" : `~${eta} min away`}
-                  </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                {ride.status === "requested" && (
+                  <View style={styles.miniPulseWrap}>
+                    <PulsingDot color={COLORS.red} size={8} />
+                  </View>
                 )}
+                <View>
+                  <Text style={styles.statusText}>{statusLabel(ride.status)}</Text>
+                  {eta !== null && ride.status !== "in_progress" && (
+                    <Text style={styles.etaTxt}>
+                      {eta === 0 ? "Driver is here" : `~${eta} min away`}
+                    </Text>
+                  )}
+                </View>
               </View>
               <View style={styles.tierBadge}>
                 <Ionicons name={tierCfg.icon as any} size={14} color={COLORS.red} />
@@ -237,6 +300,9 @@ const styles = StyleSheet.create({
     width: 14, height: 14, borderRadius: 7,
     borderWidth: 2, borderColor: COLORS.text, backgroundColor: "transparent",
   },
+  markerPickupWrap: { alignItems: "center", justifyContent: "center" },
+  pulseWrap: { position: "absolute" },
+  miniPulseWrap: { width: 10, height: 10, alignItems: "center", justifyContent: "center", overflow: "visible" },
   markerPickup: {
     width: 22, height: 22, borderRadius: 11,
     backgroundColor: COLORS.text, alignItems: "center", justifyContent: "center",

@@ -21,6 +21,7 @@ import {
 } from "../../src/lib/rides";
 import { getEarningsSummary, EarningsSummary, formatCents } from "../../src/lib/wallet";
 import { getCurrentProfile } from "../../src/lib/auth";
+import { getMyVerificationStatus, VerificationStatus } from "../../src/lib/verification";
 import { haversineKm, formatDistance, progressiveRadiusKm } from "../../src/lib/geo";
 import { useDriverOnline } from "../../src/lib/driverStatus";
 
@@ -47,6 +48,7 @@ export default function DriverHome() {
   const [online, setOnline] = useDriverOnline();
   const [firstName, setFirstName] = useState("");
   const [vehicle, setVehicle] = useState<{ make: string; model: string; plate: string } | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>("unverified");
   const [lastTrip, setLastTrip] = useState<Ride | null>(null);
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [coords, setCoords] = useState<[number, number] | null>(null); // [lng, lat]
@@ -91,6 +93,9 @@ export default function DriverHome() {
           });
         }
       })
+      .catch(() => {});
+    getMyVerificationStatus()
+      .then((v) => { if (!cancelled) setVerificationStatus(v.status); })
       .catch(() => {});
     getEarningsSummary().then((s) => { if (!cancelled) setEarnings(s); }).catch(() => {});
     getRideHistory(1).then((h) => { if (!cancelled) setLastTrip(h[0] ?? null); }).catch(() => {});
@@ -218,7 +223,24 @@ export default function DriverHome() {
     }
   };
 
-  const handleToggleOnline = () => setOnline(!online);
+  const handleToggleOnline = () => {
+    if (!online && verificationStatus !== "verified") {
+      Alert.alert(
+        verificationStatus === "pending" ? "Verification in review" : "Verification required",
+        verificationStatus === "pending"
+          ? "Your documents are still being reviewed. We'll let you know once you're approved to go online."
+          : verificationStatus === "rejected"
+          ? "One of your documents needs attention before you can go online."
+          : "Upload your license, vehicle registration and profile photo before going online.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "View verification", onPress: () => router.push("/(driver)/verification") },
+        ]
+      );
+      return;
+    }
+    setOnline(!online);
+  };
 
   return (
     <Screen>

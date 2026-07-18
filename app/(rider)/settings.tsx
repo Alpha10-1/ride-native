@@ -34,7 +34,7 @@ export default function DriverSettings() {
         <Text style={styles.section}>Account</Text>
         <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(driver)/profile")} />
         <RowItem icon="car-outline" title="Vehicle details" subtitle="Make, model, plate" onPress={() => router.push("/(driver)/profile")} />
-        <RowItem icon="document-text-outline" title="Documents" subtitle="License, insurance" onPress={() => {}} />
+        <RowItem icon="document-text-outline" title="Documents" subtitle="ID & verification" onPress={() => {}} />
 
         <Text style={styles.section}>Payouts</Text>
         <RowItem icon="wallet-outline" title="Earnings" subtitle="Balance & history" onPress={() => router.push("/(driver)/wallet")} />
