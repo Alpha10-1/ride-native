@@ -124,12 +124,20 @@ export async function getActiveRideForDriver(): Promise<Ride | null> {
 }
 
 export async function getPendingRideRequests(): Promise<Ride[]> {
-  const { data, error } = await supabase
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user.id;
+
+  let query = supabase
     .from("rides")
     .select("*")
     .eq("status", "requested")
     .order("requested_at", { ascending: true });
 
+  // A rider can never see/accept their own request, even if they switch
+  // their own account into driver mode.
+  if (userId) query = query.neq("rider_id", userId);
+
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }

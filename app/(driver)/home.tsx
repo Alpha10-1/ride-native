@@ -21,15 +21,15 @@ import {
 } from "../../src/lib/rides";
 import { getEarningsSummary, EarningsSummary, formatCents } from "../../src/lib/wallet";
 import { getCurrentProfile } from "../../src/lib/auth";
-import { haversineKm, formatDistance } from "../../src/lib/geo";
+import { haversineKm, formatDistance, progressiveRadiusKm } from "../../src/lib/geo";
 import { useDriverOnline } from "../../src/lib/driverStatus";
 
 const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
 if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);
 
-const SEARCH_RADIUS_KM = 8;
-const POLL_INTERVAL_MS = 8000;
+const MAX_SEARCH_RADIUS_KM = 1.6;
+const POLL_INTERVAL_MS = 4000;
 
 type NearbyRide = Ride & { distanceKm: number };
 
@@ -137,7 +137,7 @@ export default function DriverHome() {
               ...r,
               distanceKm: haversineKm(origin[1], origin[0], r.pickup_lat, r.pickup_lng),
             }))
-            .filter((r) => r.distanceKm <= SEARCH_RADIUS_KM)
+            .filter((r) => r.distanceKm <= progressiveRadiusKm(r.requested_at))
             .sort((a, b) => a.distanceKm - b.distanceKm)
         : pending.map((r) => ({ ...r, distanceKm: NaN }));
 
@@ -374,7 +374,7 @@ export default function DriverHome() {
                 <Ionicons name="search" size={32} color={COLORS.textFaint} />
                 <Text style={styles.emptyTitle}>Searching for riders...</Text>
                 <Text style={styles.emptySub}>
-                  New requests within {SEARCH_RADIUS_KM} km will show up here automatically.
+                  New requests within {MAX_SEARCH_RADIUS_KM} km will show up here automatically — closer riders are matched first.
                 </Text>
               </GlassCard>
             ) : (

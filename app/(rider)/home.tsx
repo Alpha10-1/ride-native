@@ -6,21 +6,26 @@ import {
 import Mapbox from "@rnmapbox/maps";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 
 import Screen from "../../src/components/Screen";
 import RiderHeader from "../../src/components/RiderHeader";
 import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import SwipeableSheet from "../../src/components/SwipeableSheet";
+import DraggableSheet from "../../src/components/DraggableSheet";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
 import { reverseGeocode } from "../../src/lib/geocoding";
-import { getRoute, requestRide, formatFare, demandLabel, TIER_CONFIG, RideTier } from "../../src/lib/rides";
+import { getRoute, requestRide, formatFare, demandLabel, TIER_CONFIG, RideTier, getActiveRideForRider } from "../../src/lib/rides";
+import { haversineKm } from "../../src/lib/geo";
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
 const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
+// Distinct from the app's red accent (used for pins/UI) so the route reads
+// clearly against the dark map style instead of blending into it.
+const ROUTE_LINE_COLOR = "#3B9EFF";
 const DEFAULT_CENTER: [number, number] = [28.0473, -26.2041];
 
 // Initialize Mapbox token before any MapView mounts
@@ -61,9 +66,26 @@ export default function RiderHome() {
   const [selectedTier, setSelectedTier] = useState<RideTier>("economy");
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [routeRefining, setRouteRefining] = useState(false);
 
   // Sheet tab
   const [sheetTab, setSheetTab] = useState<"home" | "work" | "recent" | "safety">("home");
+
+  // If the rider already has an active ride (e.g. they backgrounded the app,
+  // or a previous request never got a driver), take them straight to it —
+  // just like a real ride-hailing app, instead of letting a confusing
+  // "already have an active ride" error surface later.
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    getActiveRideForRider()
+      .then((active) => {
+        if (active && !cancelled) {
+          router.replace({ pathname: "/(rider)/ride-tracking", params: { rideId: active.id } });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []));
 
   // Load GPS + saved places on mount
   useEffect(() => {
@@ -85,7 +107,6 @@ export default function RiderHome() {
             lng: pos.coords.longitude,
           };
           setCurrentLocation(loc);
-          setPickup(loc);
           cameraRef.current?.setCamera?.({
             centerCoordinate: [pos.coords.longitude, pos.coords.latitude],
             zoomLevel: 14,
@@ -99,23 +120,73 @@ export default function RiderHome() {
     })();
   }, []);
 
-  // Fetch route when both pickup + destination are set
+  // Instantly estimate + draw a straight-line route when both points are
+  // set, then refine with the actual routed path in the background — the
+  // rider never has to stare at a blank "calculating..." screen.
   useEffect(() => {
-    if (!pickup || !destination) { setRouteGeoJSON(null); return; }
+    if (!pickup || !destination) { setRouteGeoJSON(null); setRouteRefining(false); return; }
+
+    const straightKm = haversineKm(pickup.lat, pickup.lng, destination.lat, destination.lng);
+    // Roads are rarely as direct as the crow flies — pad the straight-line
+    // distance a bit so the instant estimate is closer to the real route.
+    const approxDistanceKm = straightKm * 1.3;
+    const approxDurationMin = (approxDistanceKm / 28) * 60; // ~28 km/h average city speed
+
+    setEstimatedDistance(approxDistanceKm);
+    setEstimatedDuration(approxDurationMin);
+    setRouteGeoJSON({
+      type: "Feature",
+      properties: {},
+      geometry: {
+        type: "LineString",
+        coordinates: [[pickup.lng, pickup.lat], [destination.lng, destination.lat]],
+      },
+    } as any);
+    setRouteRefining(true);
+
+    cameraRef.current?.fitBounds?.(
+      [pickup.lng, pickup.lat],
+      [destination.lng, destination.lat],
+      [100, 60, 280, 60],
+      500
+    );
+
+    let cancelled = false;
     (async () => {
       try {
         const route = await getRoute([pickup.lng, pickup.lat], [destination.lng, destination.lat]);
+        if (cancelled) return;
         setRouteGeoJSON(route.geometry);
         setEstimatedDistance(route.distanceKm);
         setEstimatedDuration(route.durationMin);
-        cameraRef.current?.fitBounds?.(
-          [pickup.lng, pickup.lat],
-          [destination.lng, destination.lat],
-          [100, 60, 280, 60],
-          800
-        );
-      } catch { /* silent */ }
+
+        // Fit to the full route geometry (not just the two endpoints) so a
+        // curved road never gets clipped at the edges of the map.
+        const coords: [number, number][] = route.geometry?.coordinates ?? [];
+        if (coords.length > 0) {
+          let minLng = coords[0][0], maxLng = coords[0][0];
+          let minLat = coords[0][1], maxLat = coords[0][1];
+          for (const [lng, lat] of coords) {
+            if (lng < minLng) minLng = lng;
+            if (lng > maxLng) maxLng = lng;
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+          }
+          cameraRef.current?.fitBounds?.(
+            [maxLng, maxLat],
+            [minLng, minLat],
+            [90, 50, 300, 50],
+            700
+          );
+        }
+      } catch {
+        // keep the straight-line estimate — still useful, just less precise
+      } finally {
+        if (!cancelled) setRouteRefining(false);
+      }
     })();
+
+    return () => { cancelled = true; };
   }, [pickup, destination]);
 
   // Live address search with debounce
@@ -150,9 +221,26 @@ export default function RiderHome() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
+  // Fully clears anything entered during the current booking attempt.
+  // Used when the user backs out before confirming a route — without this,
+  // the stale destination/route would still be sitting there next time they
+  // open "Where to?".
+  const resetBookingFlow = () => {
+    setDestination(null);
+    setPickup(null);
+    setRouteGeoJSON(null);
+    setEstimatedDistance(null);
+    setEstimatedDuration(null);
+    setSearchQuery("");
+    setSearchResults([]);
+    setPinCoords(null);
+    setError(null);
+    setStep("sheet");
+  };
+
   const confirmSearchResult = (result: SearchResult) => {
     const point: LocationPoint = { label: result.name, address: result.address, lat: result.lat, lng: result.lng };
-    if (activeField === "pickup") { setPickup(point); setStep("input_destination"); setActiveField("destination"); }
+    if (activeField === "pickup") { setPickup(point); setStep("tiers"); }
     else { setDestination(point); setSearchQuery(""); setSearchResults([]); if (pickup) setStep("tiers"); else { setStep("input_pickup"); setActiveField("pickup"); } }
     setSearchQuery("");
     setSearchResults([]);
@@ -162,7 +250,7 @@ export default function RiderHome() {
   const confirmSavedPlace = (place: SavedPlace, forceField?: "pickup" | "destination") => {
     const field = forceField ?? activeField;
     const point: LocationPoint = { label: place.label, address: place.address, lat: place.latitude, lng: place.longitude };
-    if (field === "pickup") { setPickup(point); setStep("input_destination"); setActiveField("destination"); }
+    if (field === "pickup") { setPickup(point); setStep("tiers"); }
     else { setDestination(point); if (pickup) setStep("tiers"); else { setStep("input_pickup"); setActiveField("pickup"); } }
   };
 
@@ -202,9 +290,14 @@ export default function RiderHome() {
     try {
       const addr = await reverseGeocode(pinCoords[1], pinCoords[0]);
       const point: LocationPoint = { label: "Pinned location", address: addr, lat: pinCoords[1], lng: pinCoords[0] };
-      if (activeField === "pickup") setPickup(point); else setDestination(point);
-      if (activeField === "destination" && pickup) setStep("tiers");
-      else { setStep("input_destination"); setActiveField("destination"); }
+      if (activeField === "pickup") {
+        setPickup(point);
+        setStep("tiers"); // destination is always already set by the time pickup is being pinned
+      } else {
+        setDestination(point);
+        if (pickup) setStep("tiers");
+        else { setStep("input_pickup"); setActiveField("pickup"); }
+      }
     } catch {
       setGeocodingPin(false);
     } finally {
@@ -240,6 +333,15 @@ export default function RiderHome() {
       });
       router.replace({ pathname: "/(rider)/ride-tracking", params: { rideId: ride.id } });
     } catch (e: any) {
+      // If this failed because we already have an active ride (e.g. a race
+      // with the focus-effect check above), go to it instead of dead-ending.
+      try {
+        const active = await getActiveRideForRider();
+        if (active) {
+          router.replace({ pathname: "/(rider)/ride-tracking", params: { rideId: active.id } });
+          return;
+        }
+      } catch { /* fall through to showing the error below */ }
       setError(e?.message ?? "Failed to request ride.");
       setStep("tiers");
     } finally {
@@ -293,9 +395,14 @@ export default function RiderHome() {
           {/* Route line */}
           {routeGeoJSON && (
             <Mapbox.ShapeSource id="route" shape={routeGeoJSON}>
+              {/* Dark casing underneath for contrast on any map background */}
+              <Mapbox.LineLayer
+                id="routeLineCasing"
+                style={{ lineColor: "#0a0a0a", lineWidth: 8, lineOpacity: 0.6, lineCap: "round", lineJoin: "round" }}
+              />
               <Mapbox.LineLayer
                 id="routeLine"
-                style={{ lineColor: COLORS.red, lineWidth: 4, lineOpacity: 0.85 }}
+                style={{ lineColor: ROUTE_LINE_COLOR, lineWidth: 5, lineOpacity: 1, lineCap: "round", lineJoin: "round" }}
               />
             </Mapbox.ShapeSource>
           )}
@@ -318,7 +425,7 @@ export default function RiderHome() {
               onPress={confirmPin}
               disabled={geocodingPin || !pinCoords}
             />
-            <Pressable onPress={() => setStep("sheet")} style={styles.cancelBtn}>
+            <Pressable onPress={resetBookingFlow} style={styles.cancelBtn}>
               <Text style={styles.cancelTxt}>Cancel</Text>
             </Pressable>
           </View>
@@ -378,39 +485,21 @@ export default function RiderHome() {
         {/* ── INPUT STEP (search + suggestions) ── */}
         {(step === "input_pickup" || step === "input_destination") && (
           <View style={styles.inputPanel}>
-            {/* Input rows */}
-            <View style={styles.inputRows}>
-              {/* Pickup row */}
-              <Pressable
-                style={[styles.inputRow, activeField === "pickup" && styles.inputRowActive]}
-                onPress={() => { setActiveField("pickup"); setSearchQuery(""); }}
-              >
-                <View style={styles.dotPickup} />
-                <Text style={[styles.inputRowTxt, !pickup && { color: COLORS.textFaint }]} numberOfLines={1}>
-                  {pickup ? pickup.label : "Set pickup"}
-                </Text>
-              </Pressable>
-
-              <View style={styles.inputDivider} />
-
-              {/* Destination row */}
-              <Pressable
-                style={[styles.inputRow, activeField === "destination" && styles.inputRowActive]}
-                onPress={() => { setActiveField("destination"); setSearchQuery(""); }}
-              >
-                <Ionicons name="location" size={16} color={COLORS.red} />
-                <Text style={[styles.inputRowTxt, !destination && { color: COLORS.textFaint }]} numberOfLines={1}>
-                  {destination ? destination.label : "Where to?"}
-                </Text>
-              </Pressable>
-            </View>
+            {step === "input_destination" ? (
+              <Text style={styles.inputStepTitle}>Where to?</Text>
+            ) : (
+              <View style={styles.pickupContext}>
+                <Ionicons name="location" size={14} color={COLORS.red} />
+                <Text style={styles.pickupContextTxt} numberOfLines={1}>To: {destination?.label}</Text>
+              </View>
+            )}
 
             {/* Search field */}
             <View style={styles.searchBar}>
               <Ionicons name="search-outline" size={16} color={COLORS.textFaint} />
               <TextInput
                 style={styles.searchInput}
-                placeholder={activeField === "pickup" ? "Search pickup..." : "Search destination..."}
+                placeholder={step === "input_pickup" ? "Search pickup location..." : "Search destination..."}
                 placeholderTextColor={COLORS.textFaint}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -434,7 +523,7 @@ export default function RiderHome() {
               ListHeaderComponent={
                 searchQuery.length < 3 ? (
                   <View style={{ gap: 2 }}>
-                    {currentLocation && (
+                    {step === "input_pickup" && currentLocation && (
                       <Pressable style={styles.suggestion} onPress={() => confirmSearchResult({ id: "cur", name: "Current location", address: currentLocation.address, lat: currentLocation.lat, lng: currentLocation.lng })}>
                         <Ionicons name="navigate-outline" size={16} color={COLORS.red} />
                         <View style={{ flex: 1 }}>
@@ -466,14 +555,7 @@ export default function RiderHome() {
               )}
             />
 
-            {/* Confirm button — visible when both pickup and destination are set */}
-            {pickup && destination && (
-              <Pressable onPress={() => setStep("tiers")} style={styles.confirmRouteBtn}>
-                <Text style={styles.confirmRouteTxt}>Confirm Route</Text>
-              </Pressable>
-            )}
-
-            <Pressable onPress={() => setStep("sheet")} style={styles.cancelBtn}>
+            <Pressable onPress={resetBookingFlow} style={styles.cancelBtn}>
               <Text style={styles.cancelTxt}>Cancel</Text>
             </Pressable>
           </View>
@@ -481,7 +563,7 @@ export default function RiderHome() {
 
         {/* ── TIER SELECTION ── */}
         {(step === "tiers" || step === "requesting") && pickup && destination && (
-          <View style={styles.tierPanel}>
+          <DraggableSheet topGap={140} peekHeight={110}>
             {/* Trip summary */}
             <View style={styles.tripSummaryRow}>
               <View style={styles.dotPickup} />
@@ -492,9 +574,12 @@ export default function RiderHome() {
               <Text style={styles.tripSummaryTxt} numberOfLines={1}>{destination.label}</Text>
             </View>
             {estimatedDistance && estimatedDuration ? (
-              <Text style={styles.tripMeta}>
-                {estimatedDistance.toFixed(1)} km · {Math.round(estimatedDuration)} min · {demandLabel(demandMultiplier)}
-              </Text>
+              <View style={styles.tripMetaRow}>
+                <Text style={styles.tripMeta}>
+                  {estimatedDistance.toFixed(1)} km · {Math.round(estimatedDuration)} min · {demandLabel(demandMultiplier)}
+                </Text>
+                {routeRefining && <ActivityIndicator size="small" color={COLORS.textFaint} />}
+              </View>
             ) : null}
 
             {/* Tier options */}
@@ -534,7 +619,7 @@ export default function RiderHome() {
                 <Text style={styles.cancelTxt}>Change route</Text>
               </Pressable>
             </View>
-          </View>
+          </DraggableSheet>
         )}
       </View>
 
@@ -603,18 +688,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)",
     padding: SPACE.md, paddingBottom: SPACE.xl, gap: SPACE.sm,
   },
-  inputRows: {
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: RADIUS.xl, borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)", overflow: "hidden",
+  inputStepTitle: { color: COLORS.text, fontWeight: "900", fontSize: 20 },
+  pickupContext: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "rgba(255,255,255,0.05)", borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACE.sm, paddingVertical: 10,
   },
-  inputRow: {
-    flexDirection: "row", alignItems: "center",
-    gap: SPACE.sm, paddingHorizontal: SPACE.md, paddingVertical: 14,
-  },
-  inputRowActive: { backgroundColor: "rgba(255,46,46,0.06)" },
-  inputRowTxt: { flex: 1, color: COLORS.text, fontSize: 14, fontWeight: "600" },
-  inputDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.06)", marginLeft: 46 },
+  pickupContextTxt: { flex: 1, color: COLORS.textDim, fontSize: 13, fontWeight: "700" },
   dotPickup: {
     width: 14, height: 14, borderRadius: 7,
     borderWidth: 2, borderColor: COLORS.text, backgroundColor: "transparent",
@@ -646,32 +726,14 @@ const styles = StyleSheet.create({
   suggestionAddr: { color: COLORS.textDim, fontSize: 12, marginTop: 2 },
 
   // Cancel
-  confirmRouteBtn: {
-    height: 48,
-    borderRadius: RADIUS.xl,
-    backgroundColor: COLORS.red,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  confirmRouteTxt: {
-    color: "#000",
-    fontWeight: "900",
-    fontSize: 15,
-  },
   cancelBtn: { alignItems: "center", paddingVertical: 8 },
   cancelTxt: { color: COLORS.red, fontWeight: "700", fontSize: 14 },
 
   // Tier panel
-  tierPanel: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    backgroundColor: "#070707",
-    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)",
-    padding: SPACE.md, paddingBottom: SPACE.xl,
-    maxHeight: "75%",
-  },
   tripSummaryRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
   tripSummaryTxt: { flex: 1, color: COLORS.textDim, fontSize: 13 },
-  tripMeta: { color: COLORS.textFaint, fontSize: 12, marginTop: 4, paddingLeft: 22 },
+  tripMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, paddingLeft: 22 },
+  tripMeta: { color: COLORS.textFaint, fontSize: 12 },
 
   // Tier cards
   tierCard: {
