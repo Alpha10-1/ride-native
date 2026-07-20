@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Alert, Linking } from "react-native";
+import { View, Text, StyleSheet, Alert, Linking, Pressable } from "react-native";
 import Mapbox from "@rnmapbox/maps";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -7,11 +7,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
+import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import {
   Ride, getRideById, subscribeToRide,
   advanceRideStatus, completeRide, cancelRide,
   updateDriverLocation, formatFare, statusLabel,
+  RideStop, getRideStops, markStopReached,
 } from "../../src/lib/rides";
 
 const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
@@ -43,6 +45,8 @@ export default function ActiveTripScreen() {
   const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [ride, setRide] = useState<Ride | null>(null);
+  const [stops, setStops] = useState<RideStop[]>([]);
+  const [markingStop, setMarkingStop] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [tripStartTime, setTripStartTime] = useState<Date | null>(null);
@@ -73,6 +77,10 @@ export default function ActiveTripScreen() {
       .catch((e: any) => {
         if (!cancelled) setError(e?.message ?? "Failed to load trip details.");
       });
+
+    getRideStops(rideId)
+      .then((s) => { if (!cancelled) setStops(s); })
+      .catch(() => {});
 
     const unsub = subscribeToRide(rideId, (updated) => {
       setRide(updated);
@@ -135,17 +143,32 @@ export default function ActiveTripScreen() {
   };
 
   // Navigation target depends on where the driver is in the trip:
-  // pickup while heading to/waiting for the rider, destination once the
-  // trip is under way.
+  // pickup while heading to/waiting for the rider; then, once in progress,
+  // the next unreached stop in order, and finally the destination.
   const navTarget = (): { lat: number; lng: number } | null => {
     if (!ride) return null;
     if (ride.status === "in_progress") {
+      const nextStop = stops.find((s) => !s.reached_at);
+      if (nextStop) return { lat: nextStop.lat, lng: nextStop.lng };
       return { lat: ride.destination_lat, lng: ride.destination_lng };
     }
     if (ride.status === "accepted" || ride.status === "driver_en_route" || ride.status === "driver_arrived") {
       return { lat: ride.pickup_lat, lng: ride.pickup_lng };
     }
     return null;
+  };
+
+  const handleMarkStopReached = async (stopId: string) => {
+    if (!ride) return;
+    setMarkingStop(stopId);
+    try {
+      const updated = await markStopReached(ride.id, stopId);
+      setStops((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    } catch (e: any) {
+      Alert.alert("Couldn't update stop", e?.message ?? "Please try again.");
+    } finally {
+      setMarkingStop(null);
+    }
   };
 
   const handleNavigate = async () => {
@@ -166,6 +189,24 @@ export default function ActiveTripScreen() {
   };
 
   const handleCompleteRide = async () => {
+    if (!ride) return;
+
+    const unreached = stops.filter((s) => !s.reached_at);
+    if (unreached.length > 0) {
+      Alert.alert(
+        "Stops not marked as reached",
+        `You still have ${unreached.length} stop${unreached.length > 1 ? "s" : ""} not marked as visited. Complete the trip anyway?`,
+        [
+          { text: "Go back", style: "cancel" },
+          { text: "Complete anyway", style: "destructive", onPress: () => finishRide() },
+        ]
+      );
+      return;
+    }
+    finishRide();
+  };
+
+  const finishRide = async () => {
     if (!ride) return;
     setActionLoading(true);
     try {
@@ -259,12 +300,22 @@ export default function ActiveTripScreen() {
             </View>
           </Mapbox.PointAnnotation>
 
+          {stops.map((stop, i) => (
+            <Mapbox.PointAnnotation key={stop.id} id={`stop-${stop.id}`} coordinate={[stop.lng, stop.lat]}>
+              <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
+                <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+              </View>
+            </Mapbox.PointAnnotation>
+          ))}
+
           <Mapbox.PointAnnotation id="dest" coordinate={[ride.destination_lng, ride.destination_lat]}>
             <View style={styles.markerDest}>
               <Ionicons name="location" size={26} color={COLORS.red} />
             </View>
           </Mapbox.PointAnnotation>
         </Mapbox.MapView>
+
+        <SOSFab rideId={ride.id} />
 
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>
@@ -273,6 +324,31 @@ export default function ActiveTripScreen() {
               <Text style={styles.fareText}>Est. {formatFare(ride.estimated_fare_cents)}</Text>
             ) : null}
           </GlassCard>
+
+          {stops.length > 0 && ride.status === "in_progress" && (
+            <GlassCard style={{ gap: 10 }}>
+              <Text style={styles.stopsHeading}>Stops</Text>
+              {stops.map((stop, i) => (
+                <View key={stop.id} style={styles.stopRow}>
+                  <View style={[styles.stopNumber, stop.reached_at && styles.stopNumberDone]}>
+                    <Text style={styles.stopNumberTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+                  </View>
+                  <Text style={styles.stopAddress} numberOfLines={1}>{stop.address}</Text>
+                  {!stop.reached_at && (
+                    <Pressable
+                      style={styles.reachedBtn}
+                      disabled={markingStop === stop.id}
+                      onPress={() => handleMarkStopReached(stop.id)}
+                    >
+                      <Text style={styles.reachedBtnTxt}>
+                        {markingStop === stop.id ? "..." : "Reached"}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+            </GlassCard>
+          )}
 
           <View style={styles.locationBlock}>
             <View style={styles.locationRow}>
@@ -292,6 +368,12 @@ export default function ActiveTripScreen() {
               onPress={handleNavigate}
             />
           )}
+
+          <PrimaryButton
+            label="Message Rider"
+            onPress={() => router.push({ pathname: "/(driver)/ride-chat", params: { rideId: ride.id } })}
+            danger
+          />
 
           {/* Advance status button */}
           {advanceLabel && (
@@ -364,4 +446,28 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: "#000",
   },
   markerDest: { alignItems: "center" },
+  markerStop: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: COLORS.red, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#000",
+  },
+  markerStopReached: { backgroundColor: "rgba(120,220,150,0.95)" },
+  markerStopTxt: { color: "#000", fontWeight: "900", fontSize: 11 },
+  stopsHeading: {
+    color: COLORS.textFaint, fontSize: 11, letterSpacing: 2,
+    textTransform: "uppercase", fontWeight: "800",
+  },
+  stopRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
+  stopNumber: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center",
+  },
+  stopNumberDone: { backgroundColor: "rgba(120,220,150,0.95)" },
+  stopNumberTxt: { color: COLORS.text, fontWeight: "900", fontSize: 11 },
+  stopAddress: { flex: 1, color: COLORS.textDim, fontSize: 13 },
+  reachedBtn: {
+    height: 34, paddingHorizontal: 14, borderRadius: RADIUS.md,
+    backgroundColor: COLORS.red, alignItems: "center", justifyContent: "center",
+  },
+  reachedBtnTxt: { color: "#000", fontWeight: "900", fontSize: 12 },
 });

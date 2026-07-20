@@ -39,7 +39,18 @@
         {
           "photosPermission": "Allow $(PRODUCT_NAME) to access your photos so you can upload verification documents."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#ff2e2e"
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "72eae5ed-7601-4dad-be02-015e988174d5"
+      }
+    }
   }
 }

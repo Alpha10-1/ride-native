@@ -8,6 +8,7 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 
+import DateTimePicker from "@react-native-community/datetimepicker";
 import Screen from "../../src/components/Screen";
 import RiderHeader from "../../src/components/RiderHeader";
 import SideMenuDrawer from "../../src/components/SideMenuDrawer";
@@ -15,10 +16,15 @@ import SwipeableSheet from "../../src/components/SwipeableSheet";
 import DraggableSheet from "../../src/components/DraggableSheet";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
+import NearbyAlertBanner from "../../src/components/NearbyAlertBanner";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
 import { reverseGeocode } from "../../src/lib/geocoding";
-import { getRoute, requestRide, formatFare, demandLabel, TIER_CONFIG, RideTier, getActiveRideForRider } from "../../src/lib/rides";
+import {
+  getRoute, requestRide, requestScheduledRide, formatFare, demandLabel,
+  TIER_CONFIG, RideTier, getActiveRideForRider,
+} from "../../src/lib/rides";
+import { updateMyLocation } from "../../src/lib/presence";
 import { haversineKm } from "../../src/lib/geo";
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
@@ -46,6 +52,12 @@ export default function RiderHome() {
   const [currentLocation, setCurrentLocation] = useState<LocationPoint | null>(null);
   const [pickup, setPickup] = useState<LocationPoint | null>(null);
   const [destination, setDestination] = useState<LocationPoint | null>(null);
+  const [stops, setStops] = useState<LocationPoint[]>([]);
+  const [addingStop, setAddingStop] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduledFor, setScheduledFor] = useState<Date | null>(null);
+  const [showSchedDate, setShowSchedDate] = useState(false);
+  const [showSchedTime, setShowSchedTime] = useState(false);
   const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
 
   // Search state
@@ -120,15 +132,39 @@ export default function RiderHome() {
     })();
   }, []);
 
+  // Lightweight presence ping — lets proximity-based push (nearby public
+  // SOS alerts) find a recent location for this rider. Silent/best-effort;
+  // does nothing if location permission was never granted.
+  useEffect(() => {
+    const ping = async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== "granted") return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        updateMyLocation(pos.coords.latitude, pos.coords.longitude).catch(() => {});
+      } catch {
+        // non-critical
+      }
+    };
+    ping();
+    const interval = setInterval(ping, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Instantly estimate + draw a straight-line route when both points are
   // set, then refine with the actual routed path in the background — the
   // rider never has to stare at a blank "calculating..." screen.
   useEffect(() => {
     if (!pickup || !destination) { setRouteGeoJSON(null); setRouteRefining(false); return; }
 
-    const straightKm = haversineKm(pickup.lat, pickup.lng, destination.lat, destination.lng);
-    // Roads are rarely as direct as the crow flies — pad the straight-line
-    // distance a bit so the instant estimate is closer to the real route.
+    const waypoints: LocationPoint[] = [pickup, ...stops, destination];
+
+    // Instant straight-line estimate across every leg, padded the same way
+    // as the single-destination case, while the real route is fetched.
+    let straightKm = 0;
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      straightKm += haversineKm(waypoints[i].lat, waypoints[i].lng, waypoints[i + 1].lat, waypoints[i + 1].lng);
+    }
     const approxDistanceKm = straightKm * 1.3;
     const approxDurationMin = (approxDistanceKm / 28) * 60; // ~28 km/h average city speed
 
@@ -139,7 +175,7 @@ export default function RiderHome() {
       properties: {},
       geometry: {
         type: "LineString",
-        coordinates: [[pickup.lng, pickup.lat], [destination.lng, destination.lat]],
+        coordinates: waypoints.map((w) => [w.lng, w.lat]),
       },
     } as any);
     setRouteRefining(true);
@@ -154,7 +190,7 @@ export default function RiderHome() {
     let cancelled = false;
     (async () => {
       try {
-        const route = await getRoute([pickup.lng, pickup.lat], [destination.lng, destination.lat]);
+        const route = await getRoute(waypoints.map((w) => [w.lng, w.lat]));
         if (cancelled) return;
         setRouteGeoJSON(route.geometry);
         setEstimatedDistance(route.distanceKm);
@@ -187,7 +223,7 @@ export default function RiderHome() {
     })();
 
     return () => { cancelled = true; };
-  }, [pickup, destination]);
+  }, [pickup, destination, stops]);
 
   // Live address search with debounce
   useEffect(() => {
@@ -228,6 +264,10 @@ export default function RiderHome() {
   const resetBookingFlow = () => {
     setDestination(null);
     setPickup(null);
+    setStops([]);
+    setAddingStop(false);
+    setScheduling(false);
+    setScheduledFor(null);
     setRouteGeoJSON(null);
     setEstimatedDistance(null);
     setEstimatedDuration(null);
@@ -240,7 +280,11 @@ export default function RiderHome() {
 
   const confirmSearchResult = (result: SearchResult) => {
     const point: LocationPoint = { label: result.name, address: result.address, lat: result.lat, lng: result.lng };
-    if (activeField === "pickup") { setPickup(point); setStep("tiers"); }
+    if (addingStop) {
+      setStops((prev) => [...prev, point]);
+      setAddingStop(false);
+      setStep("tiers");
+    } else if (activeField === "pickup") { setPickup(point); setStep("tiers"); }
     else { setDestination(point); setSearchQuery(""); setSearchResults([]); if (pickup) setStep("tiers"); else { setStep("input_pickup"); setActiveField("pickup"); } }
     setSearchQuery("");
     setSearchResults([]);
@@ -314,11 +358,15 @@ export default function RiderHome() {
 
   const handleRequestRide = async () => {
     if (!pickup || !destination || !estimatedDistance || !estimatedDuration) return;
+    if (scheduling && !scheduledFor) {
+      Alert.alert("Pick a time", "Choose a date and time for your scheduled ride.");
+      return;
+    }
     setError(null);
     setStep("requesting");
     setRequesting(true);
     try {
-      const ride = await requestRide({
+      const commonParams = {
         pickupLabel: pickup.label,
         pickupAddress: pickup.address,
         pickupLat: pickup.lat,
@@ -330,7 +378,20 @@ export default function RiderHome() {
         estimatedDistanceKm: estimatedDistance,
         estimatedDurationMin: estimatedDuration,
         rideTier: selectedTier,
-      });
+        stops: stops.map((s) => ({ label: s.label, address: s.address, lat: s.lat, lng: s.lng })),
+      };
+
+      if (scheduling && scheduledFor) {
+        await requestScheduledRide({ ...commonParams, scheduledFor });
+        Alert.alert(
+          "Ride Scheduled",
+          `Your ride is booked for ${scheduledFor.toLocaleDateString("en-ZA", { day: "2-digit", month: "short" })} at ${scheduledFor.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. You can view or cancel it from Scheduled Rides.`
+        );
+        resetBookingFlow();
+        return;
+      }
+
+      const ride = await requestRide(commonParams);
       router.replace({ pathname: "/(rider)/ride-tracking", params: { rideId: ride.id } });
     } catch (e: any) {
       // If this failed because we already have an active ride (e.g. a race
@@ -382,6 +443,15 @@ export default function RiderHome() {
               </View>
             </Mapbox.PointAnnotation>
           )}
+
+          {/* Stop markers */}
+          {step !== "pin" && stops.map((stop, i) => (
+            <Mapbox.PointAnnotation key={i} id={`stop-${i}`} coordinate={[stop.lng, stop.lat]}>
+              <View style={styles.markerStop}>
+                <Text style={styles.markerStopTxt}>{i + 1}</Text>
+              </View>
+            </Mapbox.PointAnnotation>
+          ))}
 
           {/* Destination marker */}
           {destination && step !== "pin" && (
@@ -444,6 +514,8 @@ export default function RiderHome() {
             }}
           >
             <View style={{ gap: SPACE.sm }}>
+              <NearbyAlertBanner />
+
               {/* Where to? input trigger */}
               <Pressable
                 style={styles.whereToBtn}
@@ -475,6 +547,10 @@ export default function RiderHome() {
                         <Text style={styles.quickChipTxt}>{p.label}</Text>
                       </Pressable>
                     ))}
+                    <Pressable style={styles.quickChip} onPress={() => router.push("/(rider)/scheduled-rides")}>
+                      <Ionicons name="calendar-outline" size={15} color={COLORS.red} />
+                      <Text style={styles.quickChipTxt}>Scheduled</Text>
+                    </Pressable>
                   </View>
                 </ScrollView>
               )}
@@ -486,7 +562,7 @@ export default function RiderHome() {
         {(step === "input_pickup" || step === "input_destination") && (
           <View style={styles.inputPanel}>
             {step === "input_destination" ? (
-              <Text style={styles.inputStepTitle}>Where to?</Text>
+              <Text style={styles.inputStepTitle}>{addingStop ? "Add a stop" : "Where to?"}</Text>
             ) : (
               <View style={styles.pickupContext}>
                 <Ionicons name="location" size={14} color={COLORS.red} />
@@ -499,7 +575,7 @@ export default function RiderHome() {
               <Ionicons name="search-outline" size={16} color={COLORS.textFaint} />
               <TextInput
                 style={styles.searchInput}
-                placeholder={step === "input_pickup" ? "Search pickup location..." : "Search destination..."}
+                placeholder={step === "input_pickup" ? "Search pickup location..." : addingStop ? "Search for a stop..." : "Search destination..."}
                 placeholderTextColor={COLORS.textFaint}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -555,7 +631,19 @@ export default function RiderHome() {
               )}
             />
 
-            <Pressable onPress={resetBookingFlow} style={styles.cancelBtn}>
+            <Pressable
+              onPress={() => {
+                if (addingStop) {
+                  setAddingStop(false);
+                  setSearchQuery("");
+                  setSearchResults([]);
+                  setStep("tiers");
+                } else {
+                  resetBookingFlow();
+                }
+              }}
+              style={styles.cancelBtn}
+            >
               <Text style={styles.cancelTxt}>Cancel</Text>
             </Pressable>
           </View>
@@ -569,10 +657,28 @@ export default function RiderHome() {
               <View style={styles.dotPickup} />
               <Text style={styles.tripSummaryTxt} numberOfLines={1}>{pickup.label}</Text>
             </View>
+            {stops.map((stop, i) => (
+              <View key={i} style={[styles.tripSummaryRow, { marginTop: 6 }]}>
+                <Ionicons name="ellipse" size={8} color={COLORS.textFaint} />
+                <Text style={styles.tripSummaryTxt} numberOfLines={1}>{stop.label}</Text>
+                <Pressable onPress={() => setStops((prev) => prev.filter((_, idx) => idx !== i))}>
+                  <Ionicons name="close-circle" size={16} color={COLORS.textFaint} />
+                </Pressable>
+              </View>
+            ))}
             <View style={[styles.tripSummaryRow, { marginTop: 6 }]}>
               <Ionicons name="location" size={14} color={COLORS.red} />
               <Text style={styles.tripSummaryTxt} numberOfLines={1}>{destination.label}</Text>
             </View>
+            {stops.length < 3 && (
+              <Pressable
+                style={styles.addStopBtn}
+                onPress={() => { setAddingStop(true); setActiveField("destination"); setStep("input_destination"); }}
+              >
+                <Ionicons name="add-circle-outline" size={16} color={COLORS.red} />
+                <Text style={styles.addStopTxt}>Add a stop</Text>
+              </Pressable>
+            )}
             {estimatedDistance && estimatedDuration ? (
               <View style={styles.tripMetaRow}>
                 <Text style={styles.tripMeta}>
@@ -609,9 +715,72 @@ export default function RiderHome() {
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
+            {/* Schedule for later */}
+            <Pressable
+              style={styles.scheduleToggle}
+              onPress={() => {
+                if (scheduling) {
+                  setScheduling(false);
+                  setScheduledFor(null);
+                } else {
+                  setScheduling(true);
+                  setShowSchedDate(true);
+                }
+              }}
+            >
+              <Ionicons name="calendar-outline" size={16} color={scheduling ? COLORS.red : COLORS.textDim} />
+              <Text style={[styles.scheduleToggleTxt, scheduling && { color: COLORS.red }]}>
+                {scheduledFor
+                  ? `Scheduled for ${scheduledFor.toLocaleDateString("en-ZA", { day: "2-digit", month: "short" })} · ${scheduledFor.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : "Schedule for later"}
+              </Text>
+              {scheduling && (
+                <Ionicons name="close-circle" size={16} color={COLORS.textFaint} style={{ marginLeft: "auto" }} />
+              )}
+            </Pressable>
+
+            {showSchedDate && (
+              <DateTimePicker
+                value={scheduledFor ?? new Date(Date.now() + 60 * 60 * 1000)}
+                mode="date"
+                display="default"
+                minimumDate={new Date()}
+                onChange={(_, selected) => {
+                  setShowSchedDate(false);
+                  if (selected) {
+                    setScheduledFor(selected);
+                    setShowSchedTime(true);
+                  } else if (!scheduledFor) {
+                    setScheduling(false);
+                  }
+                }}
+              />
+            )}
+            {showSchedTime && (
+              <DateTimePicker
+                value={scheduledFor ?? new Date(Date.now() + 60 * 60 * 1000)}
+                mode="time"
+                display="default"
+                onChange={(_, selected) => {
+                  setShowSchedTime(false);
+                  if (selected && scheduledFor) {
+                    const combined = new Date(scheduledFor);
+                    combined.setHours(selected.getHours(), selected.getMinutes());
+                    setScheduledFor(combined);
+                  } else if (!scheduledFor) {
+                    setScheduling(false);
+                  }
+                }}
+              />
+            )}
+
             <View style={{ marginTop: SPACE.sm, gap: SPACE.sm }}>
               <PrimaryButton
-                label={requesting ? "Finding your driver..." : "Request Ride"}
+                label={
+                  requesting
+                    ? (scheduling ? "Scheduling..." : "Finding your driver...")
+                    : (scheduling ? "Schedule Ride" : "Request Ride")
+                }
                 onPress={handleRequestRide}
                 disabled={requesting}
               />
@@ -638,6 +807,12 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: "#000",
   },
   markerDest: { alignItems: "center" },
+  markerStop: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: COLORS.red, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#000",
+  },
+  markerStopTxt: { color: "#000", fontWeight: "900", fontSize: 11 },
 
   // Fixed pin
   fixedPinWrap: {
@@ -732,6 +907,15 @@ const styles = StyleSheet.create({
   // Tier panel
   tripSummaryRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
   tripSummaryTxt: { flex: 1, color: COLORS.textDim, fontSize: 13 },
+  addStopBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, alignSelf: "flex-start" },
+  addStopTxt: { color: COLORS.red, fontWeight: "800", fontSize: 13 },
+  scheduleToggle: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: RADIUS.md, paddingHorizontal: 14, paddingVertical: 12,
+  },
+  scheduleToggleTxt: { color: COLORS.textDim, fontWeight: "700", fontSize: 13 },
   tripMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, paddingLeft: 22 },
   tripMeta: { color: COLORS.textFaint, fontSize: 12 },
 

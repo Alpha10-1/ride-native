@@ -14,6 +14,7 @@ import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import RowItem from "../../src/components/RowItem";
+import NearbyAlertBanner from "../../src/components/NearbyAlertBanner";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import {
   Ride, getPendingRideRequests, getActiveRideForDriver,
@@ -24,6 +25,7 @@ import { getCurrentProfile } from "../../src/lib/auth";
 import { getMyVerificationStatus, VerificationStatus } from "../../src/lib/verification";
 import { haversineKm, formatDistance, progressiveRadiusKm } from "../../src/lib/geo";
 import { useDriverOnline } from "../../src/lib/driverStatus";
+import { updateMyLocation } from "../../src/lib/presence";
 
 const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
@@ -116,6 +118,26 @@ export default function DriverHome() {
         setLocationDenied(true);
       }
     })();
+  }, []);
+
+  // Lightweight presence ping — independent of the Go Online toggle, so
+  // even a driver who's just browsing (not online) stays locatable for
+  // nearby public SOS alerts. The online-specific refresh (for nearby ride
+  // request push) lives in src/lib/driverStatus.ts.
+  useEffect(() => {
+    const ping = async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== "granted") return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        updateMyLocation(pos.coords.latitude, pos.coords.longitude).catch(() => {});
+      } catch {
+        // non-critical
+      }
+    };
+    ping();
+    const interval = setInterval(ping, 60_000);
+    return () => clearInterval(interval);
   }, []);
 
   const triggerNewRequestAlert = useCallback((ride: NearbyRide) => {
@@ -249,6 +271,9 @@ export default function DriverHome() {
         menuOpen={menuOpen}
         onMenu={() => setMenuOpen((v) => !v)}
       />
+      <View style={{ paddingHorizontal: SPACE.md }}>
+        <NearbyAlertBanner />
+      </View>
 
       <View style={styles.mapWrap}>
         {coords ? (

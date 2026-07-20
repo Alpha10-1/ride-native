@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { router } from "expo-router";
+import { registerAndSavePushToken } from "./pushNotifications";
 
 // Supabase Auth requires an email. Since this app authenticates by username,
 // we synthesize an internal address the user never sees or types.
@@ -187,6 +188,8 @@ export async function redirectAfterAuth() {
       router.replace("/auth/login");
       return;
     }
+    // Fire-and-forget — push setup should never hold up or break sign-in.
+    registerAndSavePushToken().catch(() => {});
     if (profile.role === "driver") {
       router.replace("/(driver)/home");
     } else {

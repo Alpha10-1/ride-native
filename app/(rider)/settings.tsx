@@ -10,7 +10,12 @@ import RowItem from "../../src/components/RowItem";
 import { COLORS, SPACE } from "../../src/theme/tokens";
 import { logout } from "../../src/lib/auth";
 
-export default function DriverSettings() {
+// NOTE: this screen previously duplicated the driver settings screen
+// (vehicle details, earnings, payout method, driver promotions, and a
+// hard-coded role="driver" in the side menu) — riders were seeing an
+// entirely wrong settings page. Rebuilt here with rider-appropriate rows
+// and screens.
+export default function RiderSettings() {
   const [menuOpen, setMenuOpen] = React.useState(false);
   return (
     <Screen>
@@ -27,22 +32,22 @@ export default function DriverSettings() {
         <GlassCard>
           <Text style={styles.kicker}>MANAGE YOUR ACCOUNT</Text>
           <Text style={styles.sub}>
-            Profile, vehicle, payouts and preferences — all in one place.
+            Profile, payment, saved places and preferences — all in one place.
           </Text>
         </GlassCard>
 
         <Text style={styles.section}>Account</Text>
-        <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(driver)/profile")} />
-        <RowItem icon="car-outline" title="Vehicle details" subtitle="Make, model, plate" onPress={() => router.push("/(driver)/profile")} />
-        <RowItem icon="document-text-outline" title="Documents" subtitle="ID & verification" onPress={() => {}} />
+        <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(rider)/profile")} />
+        <RowItem icon="wallet-outline" title="Payment" subtitle="Balance & top-up" onPress={() => router.push("/(rider)/wallet")} />
+        <RowItem icon="location-outline" title="Saved Places" subtitle="Home, work, favourites" onPress={() => router.push("/(rider)/saved-places")} />
+        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Offers & promo codes" onPress={() => router.push("/(rider)/promotions")} />
 
-        <Text style={styles.section}>Payouts</Text>
-        <RowItem icon="wallet-outline" title="Earnings" subtitle="Balance & history" onPress={() => router.push("/(driver)/wallet")} />
-        <RowItem icon="card-outline" title="Payout method" subtitle="Bank account" onPress={() => {}} />
-        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Driver bonuses" onPress={() => router.push("/(driver)/promotions")} />
+        <Text style={styles.section}>Trips</Text>
+        <RowItem icon="calendar-outline" title="Scheduled Rides" subtitle="Upcoming bookings" onPress={() => router.push("/(rider)/scheduled-rides")} />
+        <RowItem icon="time-outline" title="Trip History" subtitle="Past rides & receipts" onPress={() => router.push("/(rider)/trip-history")} />
 
         <Text style={styles.section}>Safety</Text>
-        <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => {}} />
+        <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency contacts, SOS" onPress={() => router.push("/(rider)/safety")} />
 
         <Text style={styles.section}>Preferences</Text>
         <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => router.push("/(rider)/notifications-settings")} />
@@ -61,7 +66,7 @@ export default function DriverSettings() {
           onPress={() => logout().finally(() => router.replace("/auth/login"))}
         />
       </ScrollView>
-      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="driver" />
+      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />
     </Screen>
   );
 }

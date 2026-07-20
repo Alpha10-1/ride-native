@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, Alert, TextInput } from "react-native";
 import Mapbox from "@rnmapbox/maps";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -8,12 +8,18 @@ import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import PulsingDot from "../../src/components/PulsingDot";
+import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { bearing } from "../../src/lib/geo";
 import {
   Ride, getRideById, subscribeToRide, cancelRide,
   formatFare, statusLabel, TIER_CONFIG,
+  RideStop, getRideStops, subscribeToRideStops,
 } from "../../src/lib/rides";
+import {
+  RideOffer, OfferThread, getRideOffers, proposeOffer, respondToOffer,
+  subscribeToRideOffers, groupOffersByDriver, getProfileName,
+} from "../../src/lib/negotiation";
 
 const DRIVER_MOVE_DURATION_MS = 900;
 
@@ -37,6 +43,15 @@ export default function RideTrackingScreen() {
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Fare negotiation — offers from all interested drivers on this
+  // 'requested' ride, grouped into one thread per driver.
+  const [offers, setOffers] = useState<RideOffer[]>([]);
+  const [driverNames, setDriverNames] = useState<Record<string, string>>({});
+  const [counteringDriverId, setCounteringDriverId] = useState<string | null>(null);
+  const [counterInput, setCounterInput] = useState("");
+  const [offerBusy, setOfferBusy] = useState<string | null>(null);
+  const [stops, setStops] = useState<RideStop[]>([]);
+
   // Smoothly-animated driver marker position + heading, instead of the dot
   // jumping straight to each new GPS update.
   const [driverPos, setDriverPos] = useState<{ lat: number; lng: number } | null>(null);
@@ -59,6 +74,11 @@ export default function RideTrackingScreen() {
       .catch((e: any) => {
         if (!cancelled) setError(e?.message ?? "Failed to load ride details.");
       });
+
+    getRideStops(rideId)
+      .then((s) => { if (!cancelled) setStops(s); })
+      .catch(() => {});
+
     return () => { cancelled = true; };
   }, [rideId]);
 
@@ -69,6 +89,14 @@ export default function RideTrackingScreen() {
       if (updated.status === "completed" || updated.status === "cancelled") {
         router.replace({ pathname: "/(rider)/ride-complete", params: { rideId } });
       }
+    });
+    return unsub;
+  }, [rideId]);
+
+  useEffect(() => {
+    if (!rideId) return;
+    const unsub = subscribeToRideStops(rideId, (updated) => {
+      setStops((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     });
     return unsub;
   }, [rideId]);
@@ -117,6 +145,89 @@ export default function RideTrackingScreen() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [ride?.driver_lat, ride?.driver_lng]);
+
+  // Fare negotiation — only relevant while still looking for a driver.
+  useEffect(() => {
+    if (!rideId || ride?.status !== "requested") return;
+    let cancelled = false;
+
+    getRideOffers(rideId)
+      .then(async (list) => {
+        if (cancelled) return;
+        setOffers(list);
+        const uniqueDriverIds = Array.from(new Set(list.map((o) => o.driver_id)));
+        const names = await Promise.all(uniqueDriverIds.map((id) => getProfileName(id)));
+        if (cancelled) return;
+        setDriverNames((prev) => ({
+          ...prev,
+          ...Object.fromEntries(uniqueDriverIds.map((id, i) => [id, names[i]])),
+        }));
+      })
+      .catch(() => {});
+
+    const unsub = subscribeToRideOffers(rideId, (o) => {
+      setOffers((prev) => {
+        const exists = prev.some((p) => p.id === o.id);
+        return exists ? prev.map((p) => (p.id === o.id ? o : p)) : [...prev, o];
+      });
+      setDriverNames((prev) => {
+        if (prev[o.driver_id]) return prev;
+        getProfileName(o.driver_id).then((name) =>
+          setDriverNames((p2) => ({ ...p2, [o.driver_id]: name }))
+        );
+        return prev;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [rideId, ride?.status]);
+
+  const handleAcceptOffer = async (offerId: string) => {
+    setOfferBusy(offerId);
+    try {
+      await respondToOffer(offerId, true);
+      // The ride subscription above will pick up status -> 'accepted'.
+    } catch (e: any) {
+      Alert.alert("Couldn't accept offer", e?.message ?? "That driver may no longer be available.");
+    } finally {
+      setOfferBusy(null);
+    }
+  };
+
+  const handleDeclineOffer = async (offerId: string) => {
+    setOfferBusy(offerId);
+    try {
+      const updated = await respondToOffer(offerId, false);
+      setOffers((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    } catch (e: any) {
+      Alert.alert("Couldn't decline offer", e?.message ?? "Please try again.");
+    } finally {
+      setOfferBusy(null);
+    }
+  };
+
+  const handleCounter = async (driverId: string) => {
+    const amount = Math.round(parseFloat(counterInput) * 100);
+    if (!amount || amount <= 0) {
+      Alert.alert("Enter an amount", "Please enter a valid counter-offer.");
+      return;
+    }
+    if (!rideId) return;
+    setOfferBusy(driverId);
+    try {
+      const offer = await proposeOffer(rideId, amount, driverId);
+      setOffers((prev) => [...prev, offer]);
+      setCounteringDriverId(null);
+      setCounterInput("");
+    } catch (e: any) {
+      Alert.alert("Couldn't send counter-offer", e?.message ?? "Please try again.");
+    } finally {
+      setOfferBusy(null);
+    }
+  };
 
   const handleCancel = () => {
     Alert.alert(
@@ -195,6 +306,15 @@ export default function RideTrackingScreen() {
             </View>
           </Mapbox.PointAnnotation>
 
+          {/* Stops */}
+          {stops.map((stop, i) => (
+            <Mapbox.PointAnnotation key={stop.id} id={`stop-${stop.id}`} coordinate={[stop.lng, stop.lat]}>
+              <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
+                <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+              </View>
+            </Mapbox.PointAnnotation>
+          ))}
+
           {/* Destination */}
           <Mapbox.PointAnnotation id="dest" coordinate={[ride.destination_lng, ride.destination_lat]}>
             <View style={styles.markerDest}>
@@ -216,6 +336,8 @@ export default function RideTrackingScreen() {
             </Mapbox.PointAnnotation>
           )}
         </Mapbox.MapView>
+
+        <SOSFab rideId={ride.id} />
 
         {/* Status panel */}
         <View style={styles.panel}>
@@ -247,6 +369,93 @@ export default function RideTrackingScreen() {
             ) : null}
           </GlassCard>
 
+          {stops.length > 0 && (ride.status === "in_progress" || ride.status === "driver_arrived") && (
+            <GlassCard style={{ gap: 10 }}>
+              <Text style={styles.offersHeading}>Stops</Text>
+              {stops.map((stop, i) => (
+                <View key={stop.id} style={styles.stopRow}>
+                  <View style={[styles.stopNumber, stop.reached_at && styles.stopNumberDone]}>
+                    <Text style={styles.stopNumberTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+                  </View>
+                  <Text style={styles.stopAddress} numberOfLines={1}>{stop.address}</Text>
+                </View>
+              ))}
+            </GlassCard>
+          )}
+
+          {ride.status === "requested" && groupOffersByDriver(offers).length > 0 && (
+            <View style={{ gap: SPACE.sm }}>
+              <Text style={styles.offersHeading}>Driver Offers</Text>
+              {groupOffersByDriver(offers).map((thread: OfferThread) => {
+                if (thread.latest.status !== "pending") return null;
+                const isCountering = counteringDriverId === thread.driverId;
+                const busy = offerBusy === thread.driverId || offerBusy === thread.latest.id;
+                const name = driverNames[thread.driverId] ?? "Driver";
+
+                return (
+                  <GlassCard key={thread.driverId} style={styles.offerCard}>
+                    <View style={styles.offerRow}>
+                      <Text style={styles.offerDriverName}>{name}</Text>
+                      <Text style={styles.offerAmount}>{formatFare(thread.latest.amount_cents)}</Text>
+                    </View>
+                    <Text style={styles.offerSubtitle}>
+                      {thread.latest.proposed_by === "driver"
+                        ? "wants this fare for your trip"
+                        : "waiting for your counter to be answered"}
+                    </Text>
+
+                    {thread.latest.proposed_by === "driver" ? (
+                      isCountering ? (
+                        <View style={styles.offerInputRow}>
+                          <TextInput
+                            value={counterInput}
+                            onChangeText={setCounterInput}
+                            placeholder="Your counter (R)"
+                            placeholderTextColor={COLORS.textFaint}
+                            keyboardType="decimal-pad"
+                            style={styles.offerInput}
+                            autoFocus
+                          />
+                          <Pressable
+                            style={[styles.smallBtn, styles.smallBtnFilled]}
+                            disabled={busy}
+                            onPress={() => handleCounter(thread.driverId)}
+                          >
+                            <Text style={styles.smallBtnFilledTxt}>{busy ? "..." : "Send"}</Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <View style={styles.negotiationBtnRow}>
+                          <Pressable
+                            style={[styles.smallBtn, styles.smallBtnGhost]}
+                            disabled={busy}
+                            onPress={() => handleDeclineOffer(thread.latest.id)}
+                          >
+                            <Text style={styles.smallBtnGhostTxt}>Decline</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.smallBtn, styles.smallBtnGhost]}
+                            disabled={busy}
+                            onPress={() => { setCounteringDriverId(thread.driverId); setCounterInput(""); }}
+                          >
+                            <Text style={styles.smallBtnGhostTxt}>Counter</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.smallBtn, styles.smallBtnFilled]}
+                            disabled={busy}
+                            onPress={() => handleAcceptOffer(thread.latest.id)}
+                          >
+                            <Text style={styles.smallBtnFilledTxt}>{busy ? "..." : "Accept"}</Text>
+                          </Pressable>
+                        </View>
+                      )
+                    ) : null}
+                  </GlassCard>
+                );
+              })}
+            </View>
+          )}
+
           <View style={styles.tripDetails}>
             <View style={styles.detailRow}>
               <View style={styles.dotPickup} />
@@ -257,6 +466,14 @@ export default function RideTrackingScreen() {
               <Text style={styles.detailText} numberOfLines={1}>{ride.destination_address}</Text>
             </View>
           </View>
+
+          {ride.driver_id && ride.status !== "completed" && ride.status !== "cancelled" && (
+            <PrimaryButton
+              label="Message Driver"
+              onPress={() => router.push({ pathname: "/(rider)/ride-chat", params: { rideId: ride.id } })}
+              danger
+            />
+          )}
 
           {canCancel && (
             <PrimaryButton
@@ -309,9 +526,46 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: "#000",
   },
   markerDest: { alignItems: "center" },
+  markerStop: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: COLORS.red, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#000",
+  },
+  markerStopReached: { backgroundColor: "rgba(120,220,150,0.95)" },
+  markerStopTxt: { color: "#000", fontWeight: "900", fontSize: 11 },
+  stopRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
+  stopNumber: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "rgba(255,255,255,0.10)", alignItems: "center", justifyContent: "center",
+  },
+  stopNumberDone: { backgroundColor: "rgba(120,220,150,0.95)" },
+  stopNumberTxt: { color: COLORS.text, fontWeight: "900", fontSize: 11 },
+  stopAddress: { flex: 1, color: COLORS.textDim, fontSize: 13 },
   driverDot: {
     width: 34, height: 34, borderRadius: 17,
     backgroundColor: COLORS.text, alignItems: "center", justifyContent: "center",
     borderWidth: 2.5, borderColor: COLORS.red,
   },
+  offersHeading: {
+    color: COLORS.textFaint, fontSize: 11, letterSpacing: 2,
+    textTransform: "uppercase", fontWeight: "800", paddingLeft: 4,
+  },
+  offerCard: { gap: 8 },
+  offerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  offerDriverName: { color: COLORS.text, fontWeight: "900", fontSize: 15 },
+  offerAmount: { color: COLORS.red, fontWeight: "900", fontSize: 18 },
+  offerSubtitle: { color: COLORS.textDim, fontSize: 12 },
+  negotiationBtnRow: { flexDirection: "row", gap: 8 },
+  offerInputRow: { flexDirection: "row", gap: 8 },
+  offerInput: {
+    flex: 1, color: COLORS.text, fontSize: 14,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: RADIUS.md, paddingHorizontal: 14, height: 44,
+  },
+  smallBtn: { height: 40, minWidth: 76, paddingHorizontal: 12, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center", flex: 1 },
+  smallBtnFilled: { backgroundColor: COLORS.red },
+  smallBtnFilledTxt: { color: "#000", fontWeight: "900", fontSize: 13 },
+  smallBtnGhost: { borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  smallBtnGhostTxt: { color: COLORS.textDim, fontWeight: "800", fontSize: 13 },
 });

@@ -1,68 +1,72 @@
-import React, { useEffect, useState } from "react";
-import { Text, StyleSheet, ScrollView, Linking } from "react-native";
+import React from "react";
+import { Text, StyleSheet, ScrollView } from "react-native";
 import { router } from "expo-router";
 
 import Screen from "../../src/components/Screen";
-import RiderHeader from "../../src/components/RiderHeader";
 import SideMenuDrawer from "../../src/components/SideMenuDrawer";
+import RiderHeader from "../../src/components/RiderHeader";
 import GlassCard from "../../src/components/GlassCard";
 import RowItem from "../../src/components/RowItem";
 import { COLORS, SPACE } from "../../src/theme/tokens";
-import { getCurrentProfile } from "../../src/lib/auth";
+import { logout } from "../../src/lib/auth";
 
-export default function SupportScreen() {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [role, setRole] = useState<"rider" | "driver">("rider");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const profile = await getCurrentProfile();
-        if (!profile) {
-          router.replace("/auth/login");
-          return;
-        }
-        setRole(profile.role);
-      } catch {
-        // non-critical for this screen; default to "rider" drawer if it fails
-      }
-    })();
-  }, []);
-
+// NOTE: this screen previously duplicated the driver settings screen
+// (vehicle details, earnings, payout method, driver promotions, and a
+// hard-coded role="driver" in the side menu) — riders were seeing an
+// entirely wrong settings page. Rebuilt here with rider-appropriate rows
+// and screens.
+export default function RiderSettings() {
+  const [menuOpen, setMenuOpen] = React.useState(false);
   return (
     <Screen>
-      <RiderHeader subtitle="Help & Support" menuOpen={menuOpen} onMenu={() => setMenuOpen((v) => !v)} />
+      <RiderHeader
+        subtitle="Settings"
+        menuOpen={menuOpen}
+        onMenu={() => setMenuOpen((v) => !v)}
+      />
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120, gap: SPACE.sm }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <GlassCard>
-          <Text style={styles.kicker}>WE'RE HERE TO HELP</Text>
+          <Text style={styles.kicker}>MANAGE YOUR ACCOUNT</Text>
           <Text style={styles.sub}>
-            Reach out if something isn't working as expected, or browse common topics below.
+            Profile, payment, saved places and preferences — all in one place.
           </Text>
         </GlassCard>
 
-        <Text style={styles.section}>Contact</Text>
-        <RowItem
-          icon="mail-outline"
-          title="Email Support"
-          subtitle="support@ridenative.app"
-          onPress={() => Linking.openURL("mailto:support@ridenative.app")}
-        />
-        <RowItem
-          icon="call-outline"
-          title="Call Support"
-          subtitle="Available 24/7"
-          onPress={() => Linking.openURL("tel:+27000000000")}
-        />
+        <Text style={styles.section}>Account</Text>
+        <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(rider)/profile")} />
+        <RowItem icon="wallet-outline" title="Payment" subtitle="Balance & top-up" onPress={() => router.push("/(rider)/wallet")} />
+        <RowItem icon="location-outline" title="Saved Places" subtitle="Home, work, favourites" onPress={() => router.push("/(rider)/saved-places")} />
+        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Offers & promo codes" onPress={() => router.push("/(rider)/promotions")} />
 
-        <Text style={styles.section}>Common Topics</Text>
-        <RowItem icon="card-outline" title="Payments & billing" onPress={() => {}} />
-        <RowItem icon="shield-outline" title="Safety & trust" onPress={() => {}} />
-        <RowItem icon="person-outline" title="Account issues" onPress={() => {}} />
+        <Text style={styles.section}>Trips</Text>
+        <RowItem icon="calendar-outline" title="Scheduled Rides" subtitle="Upcoming bookings" onPress={() => router.push("/(rider)/scheduled-rides")} />
+        <RowItem icon="time-outline" title="Trip History" subtitle="Past rides & receipts" onPress={() => router.push("/(rider)/trip-history")} />
+
+        <Text style={styles.section}>Safety</Text>
+        <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency contacts, SOS" onPress={() => router.push("/(rider)/safety")} />
+
+        <Text style={styles.section}>Preferences</Text>
+        <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => router.push("/(rider)/notifications-settings")} />
+        <RowItem icon="language-outline" title="Language" subtitle="App language" onPress={() => router.push("/(rider)/language-settings")} />
+
+        <Text style={styles.section}>Legal</Text>
+        <RowItem icon="document-text-outline" title="Privacy" subtitle="Data & permissions" onPress={() => router.push("/(rider)/privacy")} />
+        <RowItem icon="information-circle-outline" title="About" subtitle="Version, legal" onPress={() => router.push("/(rider)/about")} />
+
+        <Text style={[styles.section, { color: COLORS.red }]}>Session</Text>
+        <RowItem
+          icon="log-out-outline"
+          title="Log out"
+          subtitle="Sign out of your account"
+          danger
+          onPress={() => logout().finally(() => router.replace("/auth/login"))}
+        />
       </ScrollView>
-      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role={role} />
+      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />
     </Screen>
   );
 }

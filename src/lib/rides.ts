@@ -11,6 +11,7 @@ export const TIER_CONFIG: Record<RideTier, { label: string; multiplier: number; 
 };
 
 export type RideStatus =
+  | "scheduled"
   | "requested"
   | "accepted"
   | "driver_en_route"
@@ -43,6 +44,7 @@ export type Ride = {
   cancellation_fee_cents: number | null;
   driver_lat: number | null;
   driver_lng: number | null;
+  scheduled_for: string | null;
   requested_at: string;
   accepted_at: string | null;
   driver_arrived_at: string | null;
@@ -58,16 +60,29 @@ export type RouteResult = {
   geometry: any;
 };
 
+export type RideStop = {
+  id: string;
+  ride_id: string;
+  sequence: number;
+  label: string;
+  address: string;
+  lat: number;
+  lng: number;
+  reached_at: string | null;
+};
+
 // ============================================
 // MAPBOX DIRECTIONS
 // ============================================
-export async function getRoute(
-  from: [number, number],
-  to: [number, number]
-): Promise<RouteResult> {
+// Accepts 2+ waypoints in visit order: [pickup, ...stops, destination].
+// Backward compatible with the old two-point call — just pass [from, to].
+export async function getRoute(waypoints: [number, number][]): Promise<RouteResult> {
+  if (waypoints.length < 2) throw new Error("getRoute needs at least 2 points.");
+
+  const coordString = waypoints.map(([lng, lat]) => `${lng},${lat}`).join(";");
   const url =
     `https://api.mapbox.com/directions/v5/mapbox/driving/` +
-    `${from[0]},${from[1]};${to[0]},${to[1]}` +
+    `${coordString}` +
     `?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
 
   const res = await fetch(url);
@@ -96,7 +111,7 @@ export async function getActiveRideForRider(): Promise<Ride | null> {
     .from("rides")
     .select("*")
     .eq("rider_id", userId)
-    .not("status", "in", '("completed","cancelled")')
+    .not("status", "in", '("completed","cancelled","scheduled")')
     .order("requested_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -123,7 +138,21 @@ export async function getActiveRideForDriver(): Promise<Ride | null> {
   return data;
 }
 
+export async function activateDueScheduledRides(): Promise<void> {
+  // Best-effort — there's no server-side cron in this project, so any
+  // client polling for requests nudges due scheduled rides into
+  // 'requested'. Safe to call often; it only touches rides whose time has
+  // actually come.
+  try {
+    await supabase.rpc("activate_due_scheduled_rides");
+  } catch {
+    // Non-critical — worst case a scheduled ride activates a poll cycle late.
+  }
+}
+
 export async function getPendingRideRequests(): Promise<Ride[]> {
+  await activateDueScheduledRides();
+
   const { data: session } = await supabase.auth.getSession();
   const userId = session.session?.user.id;
 
@@ -138,6 +167,23 @@ export async function getPendingRideRequests(): Promise<Ride[]> {
   if (userId) query = query.neq("rider_id", userId);
 
   const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getMyScheduledRides(): Promise<Ride[]> {
+  await activateDueScheduledRides();
+
+  const { data: session } = await supabase.auth.getSession();
+  const userId = session.session?.user.id;
+  if (!userId) return [];
+
+  const { data, error } = await supabase
+    .from("rides")
+    .select("*")
+    .eq("rider_id", userId)
+    .eq("status", "scheduled")
+    .order("scheduled_for", { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
@@ -185,6 +231,7 @@ export async function requestRide(params: {
   estimatedDistanceKm: number;
   estimatedDurationMin: number;
   rideTier: RideTier;
+  stops?: { label: string; address: string; lat: number; lng: number }[];
 }): Promise<Ride> {
   const { data, error } = await supabase.rpc("request_ride", {
     pickup_label_in: params.pickupLabel,
@@ -198,9 +245,63 @@ export async function requestRide(params: {
     estimated_distance_km_in: params.estimatedDistanceKm,
     estimated_duration_min_in: params.estimatedDurationMin,
     ride_tier_in: params.rideTier,
+    stops_in: params.stops ?? [],
   });
   if (error) throw error;
   return data as Ride;
+}
+
+export async function requestScheduledRide(params: {
+  pickupLabel: string;
+  pickupAddress: string;
+  pickupLat: number;
+  pickupLng: number;
+  destinationLabel: string;
+  destinationAddress: string;
+  destinationLat: number;
+  destinationLng: number;
+  estimatedDistanceKm: number;
+  estimatedDurationMin: number;
+  rideTier: RideTier;
+  scheduledFor: Date;
+  stops?: { label: string; address: string; lat: number; lng: number }[];
+}): Promise<Ride> {
+  const { data, error } = await supabase.rpc("request_scheduled_ride", {
+    pickup_label_in: params.pickupLabel,
+    pickup_address_in: params.pickupAddress,
+    pickup_lat_in: params.pickupLat,
+    pickup_lng_in: params.pickupLng,
+    destination_label_in: params.destinationLabel,
+    destination_address_in: params.destinationAddress,
+    destination_lat_in: params.destinationLat,
+    destination_lng_in: params.destinationLng,
+    estimated_distance_km_in: params.estimatedDistanceKm,
+    estimated_duration_min_in: params.estimatedDurationMin,
+    ride_tier_in: params.rideTier,
+    scheduled_for_in: params.scheduledFor.toISOString(),
+    stops_in: params.stops ?? [],
+  });
+  if (error) throw error;
+  return data as Ride;
+}
+
+export async function getRideStops(rideId: string): Promise<RideStop[]> {
+  const { data, error } = await supabase
+    .from("ride_stops")
+    .select("*")
+    .eq("ride_id", rideId)
+    .order("sequence", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as RideStop[];
+}
+
+export async function markStopReached(rideId: string, stopId: string): Promise<RideStop> {
+  const { data, error } = await supabase.rpc("mark_stop_reached", {
+    ride_id_in: rideId,
+    stop_id_in: stopId,
+  });
+  if (error) throw error;
+  return data as RideStop;
 }
 
 export async function acceptRide(rideId: string): Promise<Ride> {
@@ -210,6 +311,7 @@ export async function acceptRide(rideId: string): Promise<Ride> {
   if (error) throw error;
   return data as Ride;
 }
+
 
 export async function advanceRideStatus(rideId: string): Promise<Ride> {
   const { data, error } = await supabase.rpc("advance_ride_status", {
@@ -282,6 +384,24 @@ export function subscribeToRide(
   };
 }
 
+export function subscribeToRideStops(
+  rideId: string,
+  onUpdate: (stop: RideStop) => void
+) {
+  const channel = supabase
+    .channel(`ride-stops:${rideId}`)
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "ride_stops", filter: `ride_id=eq.${rideId}` },
+      (payload) => onUpdate(payload.new as RideStop)
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 // ============================================
 // HELPERS
 // ============================================
@@ -300,6 +420,7 @@ export function demandLabel(multiplier: number): string {
 
 export function statusLabel(status: RideStatus): string {
   switch (status) {
+    case "scheduled": return "Scheduled";
     case "requested": return "Finding your driver...";
     case "accepted": return "Driver accepted";
     case "driver_en_route": return "Driver on the way";
