@@ -41,7 +41,7 @@ export default function DriverSettings() {
         <RowItem icon="pricetag-outline" title="Promotions" subtitle="Driver bonuses" onPress={() => router.push("/(driver)/promotions")} />
 
         <Text style={styles.section}>Safety</Text>
-        <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => {}} />
+        <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => router.push("/(driver)/safety")} />
 
         <Text style={styles.section}>Preferences</Text>
         <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => router.push("/(rider)/notifications-settings")} />
