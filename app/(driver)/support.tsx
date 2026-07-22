@@ -1,3 +1,6 @@
-// Support content/role-aware drawer is handled internally via the fetched
-// profile, so we re-export the same screen rather than duplicating it.
-export { default } from "../(rider)/support";
+// Shared implementation lives in src/screens/SupportScreen.tsx (role-aware
+// internally via the fetched profile). Both (rider) and (driver) route
+// files import it directly — deliberately NOT re-exporting from each
+// other's route file, since two route-group files sharing the same leaf
+// name both resolve to the same URL path and can be misregistered.
+export { default } from "../../src/screens/SupportScreen";

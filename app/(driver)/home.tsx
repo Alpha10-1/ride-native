@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, Pressable,
-  ActivityIndicator, Vibration, Animated, Alert,
+  ActivityIndicator, Vibration, Animated, Alert, TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Mapbox from "@rnmapbox/maps";
@@ -15,11 +15,15 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import RowItem from "../../src/components/RowItem";
 import NearbyAlertBanner from "../../src/components/NearbyAlertBanner";
+import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import {
   Ride, getPendingRideRequests, getActiveRideForDriver,
   acceptRide, formatFare, TIER_CONFIG, getRideHistory,
 } from "../../src/lib/rides";
+import {
+  RideOffer, getRideOffers, proposeOffer, respondToOffer,
+} from "../../src/lib/negotiation";
 import { getEarningsSummary, EarningsSummary, formatCents } from "../../src/lib/wallet";
 import { getCurrentProfile } from "../../src/lib/auth";
 import { getMyVerificationStatus, VerificationStatus } from "../../src/lib/verification";
@@ -55,6 +59,10 @@ export default function DriverHome() {
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [coords, setCoords] = useState<[number, number] | null>(null); // [lng, lat]
   const [nearby, setNearby] = useState<NearbyRide[]>([]);
+  const [offersByRide, setOffersByRide] = useState<Record<string, RideOffer[]>>({});
+  const [negotiatingRide, setNegotiatingRide] = useState<string | null>(null);
+  const [offerInput, setOfferInput] = useState("");
+  const [offerBusy, setOfferBusy] = useState<string | null>(null);
   const [accepting, setAccepting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
@@ -179,6 +187,11 @@ export default function DriverHome() {
 
       setNearby(withDist);
       setError(null);
+
+      const entries = await Promise.all(
+        withDist.map(async (r) => [r.id, await getRideOffers(r.id).catch(() => [])] as const)
+      );
+      setOffersByRide(Object.fromEntries(entries));
     } catch (e: any) {
       setError(e?.message ?? "Failed to load nearby requests.");
     }
@@ -245,6 +258,44 @@ export default function DriverHome() {
     }
   };
 
+  const handleSendOffer = async (rideId: string) => {
+    const amount = Math.round(parseFloat(offerInput) * 100);
+    if (!amount || amount <= 0) {
+      Alert.alert("Enter an amount", "Please enter a valid offer amount.");
+      return;
+    }
+    setOfferBusy(rideId);
+    try {
+      const offer = await proposeOffer(rideId, amount);
+      setOffersByRide((prev) => ({ ...prev, [rideId]: [...(prev[rideId] ?? []), offer] }));
+      setNegotiatingRide(null);
+      setOfferInput("");
+    } catch (e: any) {
+      Alert.alert("Couldn't send offer", e?.message ?? "Please try again.");
+    } finally {
+      setOfferBusy(null);
+    }
+  };
+
+  const handleRespondToOffer = async (rideId: string, offerId: string, approve: boolean) => {
+    setOfferBusy(rideId);
+    try {
+      const updated = await respondToOffer(offerId, approve);
+      if (approve) {
+        router.replace({ pathname: "/(driver)/active-trip", params: { rideId } });
+        return;
+      }
+      setOffersByRide((prev) => ({
+        ...prev,
+        [rideId]: (prev[rideId] ?? []).map((o) => (o.id === updated.id ? updated : o)),
+      }));
+    } catch (e: any) {
+      Alert.alert("Couldn't respond", e?.message ?? "Please try again.");
+    } finally {
+      setOfferBusy(null);
+    }
+  };
+
   const handleToggleOnline = () => {
     if (!online && verificationStatus !== "verified") {
       Alert.alert(
@@ -274,6 +325,7 @@ export default function DriverHome() {
       <View style={{ paddingHorizontal: SPACE.md }}>
         <NearbyAlertBanner />
       </View>
+      <SOSFab role="driver" />
 
       <View style={styles.mapWrap}>
         {coords ? (
@@ -427,6 +479,12 @@ export default function DriverHome() {
             ) : (
               nearby.map((r) => {
                 const tierCfg = TIER_CONFIG[r.ride_tier ?? "economy"];
+                const thread = offersByRide[r.id] ?? [];
+                const latest = thread.length ? thread[thread.length - 1] : null;
+                const pendingOffer = latest?.status === "pending" ? latest : null;
+                const isNegotiating = negotiatingRide === r.id;
+                const busy = offerBusy === r.id;
+
                 return (
                   <GlassCard key={r.id} style={styles.reqCard}>
                     <View style={styles.reqTop}>
@@ -462,11 +520,71 @@ export default function DriverHome() {
                       ) : null}
                     </View>
 
+                    {pendingOffer?.proposed_by === "rider" ? (
+                      <View style={styles.negotiationBox}>
+                        <Text style={styles.negotiationTxt}>
+                          Rider countered with <Text style={{ fontWeight: "900" }}>{formatFare(pendingOffer.amount_cents)}</Text>
+                        </Text>
+                        <View style={styles.negotiationBtnRow}>
+                          <Pressable
+                            style={[styles.smallBtn, styles.smallBtnGhost]}
+                            disabled={busy}
+                            onPress={() => handleRespondToOffer(r.id, pendingOffer.id, false)}
+                          >
+                            <Text style={styles.smallBtnGhostTxt}>Decline</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.smallBtn, styles.smallBtnFilled]}
+                            disabled={busy}
+                            onPress={() => handleRespondToOffer(r.id, pendingOffer.id, true)}
+                          >
+                            <Text style={styles.smallBtnFilledTxt}>
+                              {busy ? "..." : `Accept ${formatFare(pendingOffer.amount_cents)}`}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : pendingOffer?.proposed_by === "driver" ? (
+                      <View style={styles.negotiationBox}>
+                        <Ionicons name="time-outline" size={14} color={COLORS.textDim} />
+                        <Text style={styles.negotiationTxt}>
+                          Your offer of {formatFare(pendingOffer.amount_cents)} is awaiting the rider
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {isNegotiating ? (
+                      <View style={styles.offerInputRow}>
+                        <TextInput
+                          value={offerInput}
+                          onChangeText={setOfferInput}
+                          placeholder="Your price (R)"
+                          placeholderTextColor={COLORS.textFaint}
+                          keyboardType="decimal-pad"
+                          style={styles.offerInput}
+                          autoFocus
+                        />
+                        <Pressable
+                          style={[styles.smallBtn, styles.smallBtnFilled]}
+                          disabled={busy}
+                          onPress={() => handleSendOffer(r.id)}
+                        >
+                          <Text style={styles.smallBtnFilledTxt}>{busy ? "..." : "Send"}</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+
                     <PrimaryButton
                       label={accepting === r.id ? "Accepting..." : "Accept Ride"}
                       onPress={() => handleAccept(r.id)}
                       disabled={!!accepting}
                     />
+
+                    {!pendingOffer && !isNegotiating && (
+                      <Pressable onPress={() => { setNegotiatingRide(r.id); setOfferInput(""); }}>
+                        <Text style={styles.makeOfferLink}>Make an offer instead</Text>
+                      </Pressable>
+                    )}
                   </GlassCard>
                 );
               })
@@ -644,4 +762,25 @@ const styles = StyleSheet.create({
   },
   goBtnTxt: { color: "#000", fontWeight: "900", fontSize: 15, letterSpacing: 0.5 },
   goBtnTxtOnline: { color: COLORS.red },
+  negotiationBox: {
+    flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: RADIUS.md, padding: 10,
+  },
+  negotiationTxt: { color: COLORS.textDim, fontSize: 13, flexShrink: 1 },
+  negotiationBtnRow: { flexDirection: "row", gap: 8, marginLeft: "auto" },
+  offerInputRow: { flexDirection: "row", gap: 8 },
+  offerInput: {
+    flex: 1, color: COLORS.text, fontSize: 14,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: RADIUS.md, paddingHorizontal: 14, height: 44,
+  },
+  smallBtn: { height: 40, minWidth: 76, paddingHorizontal: 12, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center" },
+  smallBtnFilled: { backgroundColor: COLORS.red },
+  smallBtnFilledTxt: { color: "#000", fontWeight: "900", fontSize: 13 },
+  smallBtnGhost: { borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  smallBtnGhostTxt: { color: COLORS.textDim, fontWeight: "800", fontSize: 13 },
+  makeOfferLink: { color: COLORS.red, fontWeight: "800", fontSize: 13, textAlign: "center" },
 });

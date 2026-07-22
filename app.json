@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["waze"]
+        "LSApplicationQueriesSchemes": ["waze", "whatsapp"]
       }
     },
     "android": {

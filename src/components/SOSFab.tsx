@@ -5,12 +5,13 @@ import { router } from "expo-router";
 import * as Location from "expo-location";
 
 import { COLORS } from "../theme/tokens";
-import { getEmergencyContacts, triggerSOS, openSOSTextTo } from "../lib/safety";
+import { getEmergencyContacts, triggerSOS, alertEmergencyContact } from "../lib/safety";
 
 // Always available (per design), but meant to be placed prominently as a
 // floating button on active trip screens.
-export default function SOSFab({ rideId }: { rideId?: string }) {
+export default function SOSFab({ rideId, role = "rider" }: { rideId?: string; role?: "rider" | "driver" }) {
   const [busy, setBusy] = useState(false);
+  const safetyPath = role === "driver" ? "/(driver)/safety" : "/(rider)/safety";
 
   const handlePress = () => {
     Alert.alert(
@@ -20,7 +21,7 @@ export default function SOSFab({ rideId }: { rideId?: string }) {
         { text: "Cancel", style: "cancel" },
         {
           text: "More Options",
-          onPress: () => router.push({ pathname: "/(rider)/safety", params: rideId ? { rideId } : {} }),
+          onPress: () => router.push({ pathname: safetyPath, params: rideId ? { rideId } : {} }),
         },
         { text: "Alert Emergency Contacts", style: "destructive", onPress: handleQuickTrigger },
       ]
@@ -37,7 +38,7 @@ export default function SOSFab({ rideId }: { rideId?: string }) {
           "Add one in Safety settings first so someone can be alerted.",
           [
             { text: "Cancel", style: "cancel" },
-            { text: "Add Contact", onPress: () => router.push("/(rider)/safety") },
+            { text: "Add Contact", onPress: () => router.push(safetyPath) },
           ]
         );
         return;
@@ -58,7 +59,7 @@ export default function SOSFab({ rideId }: { rideId?: string }) {
       });
 
       for (const c of contacts) {
-        await openSOSTextTo(c.phone, pos.coords.latitude, pos.coords.longitude);
+        await alertEmergencyContact(c.phone, pos.coords.latitude, pos.coords.longitude);
       }
       Alert.alert("Alert sent", "Your emergency contacts have been notified.");
     } catch (e: any) {

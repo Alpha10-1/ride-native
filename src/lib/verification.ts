@@ -1,6 +1,14 @@
 import { supabase } from "./supabase";
 
-export type DocType = "drivers_license" | "vehicle_registration" | "profile_photo";
+export type DocType =
+  | "drivers_license"
+  | "id_copy"
+  | "prdp"
+  | "vehicle_license"
+  | "vehicle_photo_front"
+  | "vehicle_photo_interior"
+  | "vehicle_photo_side"
+  | "vehicle_photo_back";
 
 export type DocStatus = "not_submitted" | "pending" | "approved" | "rejected";
 
@@ -18,24 +26,70 @@ export type DriverDocument = {
   reviewed_by: string | null;
 };
 
-export const REQUIRED_DOCS: { type: DocType; label: string; description: string; icon: string }[] = [
+export type RequiredDoc = {
+  type: DocType;
+  label: string;
+  description: string;
+  icon: string;
+  group: "Personal Documents" | "Vehicle Documents" | "Vehicle Photos";
+};
+
+export const REQUIRED_DOCS: RequiredDoc[] = [
   {
     type: "drivers_license",
-    label: "Driver's license",
+    label: "Driver's License",
     description: "A clear photo of your valid driver's license",
     icon: "card-outline",
+    group: "Personal Documents",
   },
   {
-    type: "vehicle_registration",
-    label: "Vehicle registration",
-    description: "Proof of registration for the vehicle you'll drive",
+    type: "id_copy",
+    label: "ID Copy",
+    description: "A clear photo of your ID document or passport",
+    icon: "id-card-outline",
+    group: "Personal Documents",
+  },
+  {
+    type: "prdp",
+    label: "Professional Driving Permit",
+    description: "Your valid PrDP (required to carry paying passengers)",
+    icon: "ribbon-outline",
+    group: "Personal Documents",
+  },
+  {
+    type: "vehicle_license",
+    label: "Vehicle License / Car Disc",
+    description: "Your vehicle's current license disc",
     icon: "document-text-outline",
+    group: "Vehicle Documents",
   },
   {
-    type: "profile_photo",
-    label: "Profile photo",
-    description: "A recent photo of yourself for identity verification",
-    icon: "person-circle-outline",
+    type: "vehicle_photo_front",
+    label: "Vehicle Photo — Front",
+    description: "A clear photo of the front of your vehicle",
+    icon: "car-outline",
+    group: "Vehicle Photos",
+  },
+  {
+    type: "vehicle_photo_back",
+    label: "Vehicle Photo — Back",
+    description: "A clear photo of the back of your vehicle",
+    icon: "car-outline",
+    group: "Vehicle Photos",
+  },
+  {
+    type: "vehicle_photo_side",
+    label: "Vehicle Photo — Side",
+    description: "A clear photo of the side of your vehicle",
+    icon: "car-outline",
+    group: "Vehicle Photos",
+  },
+  {
+    type: "vehicle_photo_interior",
+    label: "Vehicle Photo — Interior",
+    description: "A clear photo of the interior of your vehicle",
+    icon: "car-outline",
+    group: "Vehicle Photos",
   },
 ];
 

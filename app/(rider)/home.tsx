@@ -17,6 +17,7 @@ import DraggableSheet from "../../src/components/DraggableSheet";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import NearbyAlertBanner from "../../src/components/NearbyAlertBanner";
+import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
 import { reverseGeocode } from "../../src/lib/geocoding";
@@ -334,7 +335,11 @@ export default function RiderHome() {
     try {
       const addr = await reverseGeocode(pinCoords[1], pinCoords[0]);
       const point: LocationPoint = { label: "Pinned location", address: addr, lat: pinCoords[1], lng: pinCoords[0] };
-      if (activeField === "pickup") {
+      if (addingStop) {
+        setStops((prev) => [...prev, point]);
+        setAddingStop(false);
+        setStep("tiers");
+      } else if (activeField === "pickup") {
         setPickup(point);
         setStep("tiers"); // destination is always already set by the time pickup is being pinned
       } else {
@@ -417,6 +422,7 @@ export default function RiderHome() {
   return (
     <Screen>
       <RiderHeader subtitle="Where to?" menuOpen={menuOpen} onMenu={() => setMenuOpen((v) => !v)} />
+      <SOSFab role="rider" />
 
       <View style={styles.root}>
         {/* ── MAP ── */}

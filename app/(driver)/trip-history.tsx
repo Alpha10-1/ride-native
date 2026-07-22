@@ -1,4 +1,6 @@
-// Trip history logic is role-aware internally (rides/receipts are filtered
-// by rider_id OR driver_id server-side), so we re-export the same screen
-// rather than duplicating it.
-export { default } from "../(rider)/trip-history";
+// Shared implementation lives in src/screens/TripHistoryScreen.tsx (role-aware
+// internally via the fetched profile). Both (rider) and (driver) route
+// files import it directly — deliberately NOT re-exporting from each
+// other's route file, since two route-group files sharing the same leaf
+// name both resolve to the same URL path and can be misregistered.
+export { default } from "../../src/screens/TripHistoryScreen";

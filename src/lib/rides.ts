@@ -216,6 +216,15 @@ export async function getRideHistory(limit = 20): Promise<Ride[]> {
   return data ?? [];
 }
 
+export type ProfileStats = { tripCount: number; totalCents: number };
+
+export async function getProfileStats(): Promise<ProfileStats> {
+  const { data, error } = await supabase.rpc("get_profile_stats");
+  if (error) throw error;
+  const row = data?.[0];
+  return { tripCount: Number(row?.trip_count ?? 0), totalCents: Number(row?.total_cents ?? 0) };
+}
+
 // ============================================
 // RIDE ACTION RPCs
 // ============================================

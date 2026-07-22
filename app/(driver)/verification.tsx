@@ -116,14 +116,16 @@ export default function VerificationScreen() {
               ? "You're fully verified and can go online to accept rides."
               : status === "rejected"
               ? notes ?? "One or more documents need attention — see below."
-              : "Upload the documents below. You can go online once all three are approved."}
+              : "Upload the documents below. You can go online once every document is approved."}
           </Text>
         </GlassCard>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Text style={styles.section}>Required Documents</Text>
-        {REQUIRED_DOCS.map((doc) => {
+        {(["Personal Documents", "Vehicle Documents", "Vehicle Photos"] as const).map((group) => (
+          <React.Fragment key={group}>
+            <Text style={styles.section}>{group}</Text>
+            {REQUIRED_DOCS.filter((d) => d.group === group).map((doc) => {
           const docStatus = docStatusFor(docs, doc.type);
           const dMeta = DOC_STATUS_META[docStatus];
           const rejected = docs.find((d) => d.doc_type === doc.type && d.status === "rejected");
@@ -167,7 +169,9 @@ export default function VerificationScreen() {
               </Pressable>
             </GlassCard>
           );
-        })}
+            })}
+          </React.Fragment>
+        ))}
       </ScrollView>
       <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="driver" />
     </Screen>

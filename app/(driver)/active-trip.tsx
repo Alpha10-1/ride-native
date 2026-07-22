@@ -315,7 +315,7 @@ export default function ActiveTripScreen() {
           </Mapbox.PointAnnotation>
         </Mapbox.MapView>
 
-        <SOSFab rideId={ride.id} />
+        <SOSFab rideId={ride.id} role="driver" />
 
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>

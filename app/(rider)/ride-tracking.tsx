@@ -337,7 +337,7 @@ export default function RideTrackingScreen() {
           )}
         </Mapbox.MapView>
 
-        <SOSFab rideId={ride.id} />
+        <SOSFab rideId={ride.id} role="rider" />
 
         {/* Status panel */}
         <View style={styles.panel}>

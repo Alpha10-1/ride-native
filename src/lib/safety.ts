@@ -129,3 +129,52 @@ export async function openSOSTextTo(phone: string, lat: number, lng: number) {
     // Best-effort — if the device has no SMS app, there's nothing more we can do here.
   }
 }
+
+// Normalizes a South African-style local number ("082 123 4567") to the
+// international format WhatsApp's click-to-chat links require (no spaces,
+// no leading 0, country code prefixed). Numbers that already look
+// international (start with a country code, no leading 0) pass through.
+function toWhatsAppNumber(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("0")) return `27${digits.slice(1)}`;
+  return digits;
+}
+
+// Opens WhatsApp's click-to-chat link, pre-filled the same way as the SMS
+// alert. Falls back silently if WhatsApp isn't installed — the SMS alert
+// (or the in-app alert record itself) still goes out regardless.
+export async function openSOSWhatsAppTo(phone: string, lat: number, lng: number) {
+  const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
+  const message = `SOS: I need help. My current location: ${mapsUrl}`;
+  const number = toWhatsAppNumber(phone);
+  const url = `whatsapp://send?phone=${number}&text=${encodeURIComponent(message)}`;
+  try {
+    const canOpen = await Linking.canOpenURL(url);
+    if (canOpen) await Linking.openURL(url);
+  } catch {
+    // Best-effort — WhatsApp not installed or not registered as a URL scheme handler.
+  }
+}
+
+// Prefers WhatsApp (near-universal in South Africa, no per-message carrier
+// cost) and only falls back to SMS if WhatsApp isn't installed — firing
+// both unconditionally would just yank the user out of the first composer
+// into the second before they could hit send.
+export async function alertEmergencyContact(phone: string, lat: number, lng: number) {
+  const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
+  const message = `SOS: I need help. My current location: ${mapsUrl}`;
+  const number = toWhatsAppNumber(phone);
+  const whatsappUrl = `whatsapp://send?phone=${number}&text=${encodeURIComponent(message)}`;
+
+  try {
+    const canOpenWhatsApp = await Linking.canOpenURL(whatsappUrl);
+    if (canOpenWhatsApp) {
+      await Linking.openURL(whatsappUrl);
+      return;
+    }
+  } catch {
+    // fall through to SMS
+  }
+
+  await openSOSTextTo(phone, lat, lng);
+}

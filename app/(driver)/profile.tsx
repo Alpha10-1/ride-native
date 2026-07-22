@@ -1,4 +1,6 @@
-// Profile logic is identical for both roles (role-aware fields are handled
-// internally based on the fetched profile), so we re-export the same screen
-// rather than duplicating it.
-export { default } from "../(rider)/profile";
+// Shared implementation lives in src/screens/ProfileScreen.tsx (role-aware
+// internally via the fetched profile). Both (rider) and (driver) route
+// files import it directly — deliberately NOT re-exporting from each
+// other's route file, since two route-group files sharing the same leaf
+// name both resolve to the same URL path and can be misregistered.
+export { default } from "../../src/screens/ProfileScreen";

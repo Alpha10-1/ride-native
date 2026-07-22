@@ -37,6 +37,7 @@ export default function DriverSettings() {
 
         <Text style={styles.section}>Payouts</Text>
         <RowItem icon="wallet-outline" title="Earnings" subtitle="Balance & history" onPress={() => router.push("/(driver)/wallet")} />
+        <RowItem icon="document-text-outline" title="Statements" subtitle="Weekly & monthly PDF" onPress={() => router.push("/(driver)/statements")} />
         <RowItem icon="card-outline" title="Payout method" subtitle="Bank account" onPress={() => {}} />
         <RowItem icon="pricetag-outline" title="Promotions" subtitle="Driver bonuses" onPress={() => router.push("/(driver)/promotions")} />
 
@@ -44,12 +45,12 @@ export default function DriverSettings() {
         <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => router.push("/(driver)/safety")} />
 
         <Text style={styles.section}>Preferences</Text>
-        <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => router.push("/(rider)/notifications-settings")} />
-        <RowItem icon="language-outline" title="Language" subtitle="App language" onPress={() => router.push("/(rider)/language-settings")} />
+        <RowItem icon="notifications-outline" title="Notifications" subtitle="Push + SMS" onPress={() => router.push("/(driver)/notifications-settings")} />
+        <RowItem icon="language-outline" title="Language" subtitle="App language" onPress={() => router.push("/(driver)/language-settings")} />
 
         <Text style={styles.section}>Legal</Text>
-        <RowItem icon="document-text-outline" title="Privacy" subtitle="Data & permissions" onPress={() => router.push("/(rider)/privacy")} />
-        <RowItem icon="information-circle-outline" title="About" subtitle="Version, legal" onPress={() => router.push("/(rider)/about")} />
+        <RowItem icon="document-text-outline" title="Privacy" subtitle="Data & permissions" onPress={() => router.push("/(driver)/privacy")} />
+        <RowItem icon="information-circle-outline" title="About" subtitle="Version, legal" onPress={() => router.push("/(driver)/about")} />
 
         <Text style={[styles.section, { color: COLORS.red }]}>Session</Text>
         <RowItem
