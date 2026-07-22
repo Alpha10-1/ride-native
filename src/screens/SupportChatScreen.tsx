@@ -1,28 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { Text, StyleSheet, ScrollView, Linking } from "react-native";
 import { router } from "expo-router";
 
 import Screen from "../components/Screen";
 import RiderHeader from "../components/RiderHeader";
 import SideMenuDrawer from "../components/SideMenuDrawer";
-import ChatThread, { ChatBubble } from "../components/ChatThread";
-import { COLORS } from "../theme/tokens";
+import GlassCard from "../components/GlassCard";
+import RowItem from "../components/RowItem";
+import { COLORS, SPACE } from "../theme/tokens";
 import { getCurrentProfile } from "../lib/auth";
-import {
-  SupportMessage, getSupportMessages, sendSupportMessage, subscribeToSupportMessages,
-} from "../lib/chat";
 
-export default function SupportChatScreen() {
+export default function SupportScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [role, setRole] = useState<"rider" | "driver">("rider");
-  const [myId, setMyId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<SupportMessage[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
-    let unsubscribe: (() => void) | undefined;
-
     (async () => {
       try {
         const profile = await getCurrentProfile();
@@ -30,71 +22,74 @@ export default function SupportChatScreen() {
           router.replace("/auth/login");
           return;
         }
-        const msgs = await getSupportMessages();
-        if (cancelled) return;
         setRole(profile.role);
-        setMyId(profile.id);
-        setMessages(msgs);
-
-        unsubscribe = subscribeToSupportMessages(profile.id, (m) => {
-          setMessages((prev) => (prev.some((p) => p.id === m.id) ? prev : [...prev, m]));
-        });
-      } finally {
-        if (!cancelled) setLoading(false);
+      } catch {
+        // non-critical for this screen; default to "rider" drawer if it fails
       }
     })();
-
-    return () => {
-      cancelled = true;
-      unsubscribe?.();
-    };
   }, []);
-
-  const bubbles: ChatBubble[] = messages.map((m) => ({
-    id: m.id,
-    body: m.body,
-    createdAt: m.created_at,
-    isMine: m.sender_role === "user",
-    senderLabel: m.sender_role === "admin" ? "Support" : undefined,
-  }));
 
   return (
     <Screen>
-      <RiderHeader subtitle="Support Chat" menuOpen={menuOpen} onMenu={() => setMenuOpen((v) => !v)} />
-      {loading ? (
-        <View style={styles.centerFill}>
-          <ActivityIndicator color={COLORS.red} />
-        </View>
-      ) : (
-        <ChatThread
-          bubbles={bubbles}
-          onSend={async (body) => {
-            const optimistic: SupportMessage = {
-              id: `pending-${Date.now()}`,
-              user_id: myId ?? "",
-              sender_id: myId ?? "",
-              sender_role: "user",
-              body,
-              created_at: new Date().toISOString(),
-              read_at: null,
-            };
-            setMessages((prev) => [...prev, optimistic]);
-            try {
-              const saved = await sendSupportMessage(body);
-              setMessages((prev) => prev.map((m) => (m.id === optimistic.id ? saved : m)));
-            } catch {
-              setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-            }
-          }}
-          placeholder="Message our support team..."
-          emptyStateText="Tell us what's going on — we usually reply within a few hours."
+      <RiderHeader subtitle="Help & Support" menuOpen={menuOpen} onMenu={() => setMenuOpen((v) => !v)} />
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: 120, gap: SPACE.sm }}
+        showsVerticalScrollIndicator={false}
+      >
+        <GlassCard>
+          <Text style={styles.kicker}>WE'RE HERE TO HELP</Text>
+          <Text style={styles.sub}>
+            Reach out if something isn't working as expected, or browse common topics below.
+          </Text>
+        </GlassCard>
+
+        <Text style={styles.section}>Contact</Text>
+        <RowItem
+          icon="chatbubble-ellipses-outline"
+          title="Chat with Support"
+          subtitle="Usually replies within a few hours"
+          onPress={() => router.push(role === "driver" ? "/(driver)/support-chat" : "/(rider)/support-chat")}
         />
-      )}
+        <RowItem
+          icon="call-outline"
+          title="Call Support"
+          subtitle="Available 24/7"
+          onPress={() => Linking.openURL("tel:+27000000000")}
+        />
+        <RowItem
+          icon="mail-outline"
+          title="Email Support"
+          subtitle="support@ridenative.app"
+          onPress={() => Linking.openURL("mailto:support@ridenative.app")}
+        />
+
+        <Text style={styles.section}>Common Topics</Text>
+        <RowItem icon="card-outline" title="Payments & billing" onPress={() => {}} />
+        <RowItem icon="shield-outline" title="Safety & trust" onPress={() => {}} />
+        <RowItem icon="person-outline" title="Account issues" onPress={() => {}} />
+      </ScrollView>
       <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role={role} />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  centerFill: { flex: 1, alignItems: "center", justifyContent: "center" },
+  kicker: {
+    color: COLORS.textDim,
+    fontSize: 11,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    fontWeight: "800",
+  },
+  sub: { color: COLORS.textDim, marginTop: 6, fontSize: 13, lineHeight: 18 },
+  section: {
+    marginTop: SPACE.md,
+    marginBottom: 6,
+    paddingLeft: 4,
+    color: COLORS.textFaint,
+    fontSize: 11,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    fontWeight: "800",
+  },
 });
