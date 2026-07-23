@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { router } from "expo-router";
+import { Alert } from "react-native";
 import { registerAndSavePushToken } from "./pushNotifications";
 
 // Supabase Auth requires an email. Since this app authenticates by username,
@@ -185,6 +186,17 @@ export async function redirectAfterAuth() {
   try {
     const profile = await getCurrentProfile();
     if (!profile) {
+      router.replace("/auth/login");
+      return;
+    }
+    if (profile.is_suspended) {
+      await supabase.auth.signOut();
+      Alert.alert(
+        "Account suspended",
+        profile.suspension_reason
+          ? `Your account has been suspended: ${profile.suspension_reason}`
+          : "Your account has been suspended. Contact support for details."
+      );
       router.replace("/auth/login");
       return;
     }

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Stack, router } from "expo-router";
+import { Alert } from "react-native";
 
 import { supabase } from "../src/lib/supabase";
 import { registerAndSavePushToken, addNotificationTapListener } from "../src/lib/pushNotifications";
@@ -7,9 +8,30 @@ import { registerAndSavePushToken, addNotificationTapListener } from "../src/lib
 export default function RootLayout() {
   useEffect(() => {
     // Covers the "already logged in, just reopened the app" case — fresh
-    // logins/signups are handled in redirectAfterAuth() in auth.ts.
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) registerAndSavePushToken().catch(() => {});
+    // logins/signups are handled in redirectAfterAuth() in auth.ts. Also
+    // covers an account being suspended while a session is still active —
+    // this re-checks every time the app is opened, not just at login.
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!data.session) return;
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_suspended, suspension_reason")
+        .eq("id", data.session.user.id)
+        .single();
+
+      if (profile?.is_suspended) {
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Account suspended",
+          profile.suspension_reason
+            ? `Your account has been suspended: ${profile.suspension_reason}`
+            : "Your account has been suspended. Contact support for details."
+        );
+        router.replace("/auth/login");
+        return;
+      }
+
+      registerAndSavePushToken().catch(() => {});
     });
 
     const unsubscribe = addNotificationTapListener(async (data) => {
