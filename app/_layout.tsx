@@ -15,9 +15,19 @@ export default function RootLayout() {
       if (!data.session) return;
       const { data: profile } = await supabase
         .from("profiles")
-        .select("is_suspended, suspension_reason")
+        .select("role, is_suspended, suspension_reason")
         .eq("id", data.session.user.id)
         .single();
+
+      if (profile?.role === "staff") {
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Staff account",
+          "This account is for the admin dashboard, not the rider/driver app."
+        );
+        router.replace("/auth/login");
+        return;
+      }
 
       if (profile?.is_suspended) {
         await supabase.auth.signOut();

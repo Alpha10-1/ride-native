@@ -200,6 +200,15 @@ export async function redirectAfterAuth() {
       router.replace("/auth/login");
       return;
     }
+    if (profile.role === "staff") {
+      await supabase.auth.signOut();
+      Alert.alert(
+        "Staff account",
+        "This account is for the admin dashboard, not the rider/driver app."
+      );
+      router.replace("/auth/login");
+      return;
+    }
     // Fire-and-forget — push setup should never hold up or break sign-in.
     registerAndSavePushToken().catch(() => {});
     if (profile.role === "driver") {

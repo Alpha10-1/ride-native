@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { router } from "expo-router";
 
@@ -8,10 +8,15 @@ import GlassCard from "../components/GlassCard";
 import RowItem from "../components/RowItem";
 import PrimaryButton from "../components/PrimaryButton";
 import { COLORS, SPACE } from "../theme/tokens";
-import { deleteAccount } from "../lib/auth";
+import { deleteAccount, getCurrentProfile } from "../lib/auth";
 
 export default function PrivacyScreen() {
   const [deleting, setDeleting] = useState(false);
+  const [role, setRole] = useState<"rider" | "driver">("rider");
+
+  useEffect(() => {
+    getCurrentProfile().then((p) => { if (p) setRole(p.role); }).catch(() => {});
+  }, []);
 
   const handleDeleteAccount = () => {
     // First confirmation
@@ -95,7 +100,10 @@ export default function PrivacyScreen() {
           icon="document-text-outline"
           title="Full Privacy Policy"
           subtitle="Detailed data handling policy"
-          onPress={() => {}}
+          onPress={() => router.push({
+            pathname: role === "driver" ? "/(driver)/legal-doc" : "/(rider)/legal-doc",
+            params: { docKey: "privacy_policy" },
+          })}
         />
 
         <Text style={[styles.section, { color: COLORS.red }]}>Danger Zone</Text>
