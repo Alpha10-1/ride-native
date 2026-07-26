@@ -11,6 +11,34 @@ function usernameToAuthEmail(username: string) {
 
 export type Role = "rider" | "driver";
 
+// Username requirements — enforced both here (instant feedback while
+// typing) and, for length/uniqueness, implicitly by the DB via
+// is_username_available.
+export const USERNAME_MIN_LENGTH = 4;
+export const USERNAME_MAX_LENGTH = 20;
+export const USERNAME_REQUIREMENTS =
+  `${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} characters. Start with a letter. ` +
+  `Lowercase letters, numbers, underscores, and periods only.`;
+
+// Returns null if the format is valid, or a human-readable reason if not.
+// Doesn't check availability — see checkUsernameAvailable for that.
+export function validateUsernameFormat(usernameRaw: string): string | null {
+  const username = usernameRaw.trim().toLowerCase();
+  if (username.length < USERNAME_MIN_LENGTH) {
+    return `Must be at least ${USERNAME_MIN_LENGTH} characters.`;
+  }
+  if (username.length > USERNAME_MAX_LENGTH) {
+    return `Must be at most ${USERNAME_MAX_LENGTH} characters.`;
+  }
+  if (!/^[a-z]/.test(username)) {
+    return "Must start with a letter.";
+  }
+  if (!/^[a-z0-9_.]+$/.test(username)) {
+    return "Only lowercase letters, numbers, underscores, and periods are allowed.";
+  }
+  return null;
+}
+
 export type RegisterPayload = {
   username: string;
   password: string;
@@ -76,11 +104,41 @@ export async function registerUser(payload: RegisterPayload) {
     );
   }
 
+  // Best-effort — links their real email as a verified Supabase Auth
+  // identity so account recovery (forgot username/password) works later.
+  // Supabase emails a confirmation link to the real address using its own
+  // built-in mailer; nothing else here depends on it succeeding.
+  linkRecoveryEmail(payload.email).catch(() => {});
+
   return user;
 }
 
+// Sends a confirmation link to the person's real email, which — once
+// clicked — replaces their synthetic auth email with this real one. Safe
+// to call again later (e.g. from a "resend verification" button) if the
+// first email is missed or the address changes.
+export async function linkRecoveryEmail(realEmail: string) {
+  const { error } = await supabase.auth.updateUser({ email: realEmail.trim().toLowerCase() });
+  if (error) throw error;
+}
+
 export async function loginUser(username: string, password: string) {
-  const authEmail = usernameToAuthEmail(username);
+  const trimmedUsername = username.trim().toLowerCase();
+  let authEmail = usernameToAuthEmail(trimmedUsername);
+
+  // Once someone has verified a real recovery email (see linkRecoveryEmail),
+  // their Supabase Auth email changes from the synthetic placeholder to
+  // that real address, so we can't always assume the synthetic form.
+  try {
+    const { data: resolvedEmail } = await supabase.rpc("get_auth_email_for_username", {
+      username_in: trimmedUsername,
+    });
+    if (resolvedEmail) authEmail = resolvedEmail;
+  } catch {
+    // Fall back to the synthetic guess below — worst case this only
+    // affects accounts that have already verified a real email, and
+    // they'll just see a sign-in error to retry rather than a crash.
+  }
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email: authEmail,
@@ -240,4 +298,83 @@ export async function deleteAccount() {
 export async function logout() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
+}
+
+// ============================================
+// ACCOUNT RECOVERY
+// ============================================
+// Both flows below only work for an account that has verified a real
+// recovery email (see linkRecoveryEmail) — Supabase's built-in email
+// delivery has no way to reach anyone still on the synthetic placeholder
+// address. Deliberately generic success messages throughout so neither
+// flow ever confirms/denies whether a given email has an account.
+
+const PASSWORD_RESET_REDIRECT_URL = "ridenative://auth/reset-password";
+
+// Step 1 of "forgot password" — sends a reset link to the given email if
+// (and only if) it's a verified recovery email on some account. Always
+// resolves; the UI should show the same message regardless of outcome.
+export async function requestPasswordReset(email: string) {
+  await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo: PASSWORD_RESET_REDIRECT_URL,
+  });
+}
+
+// Step 2 — called from the reset-password screen once a recovery session
+// has been established via the emailed link (see exchangeRecoverySession).
+export async function completePasswordReset(newPassword: string) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+// Establishes a session from the recovery link's URL (opened via the
+// ridenative:// deep link). Supports both the modern PKCE `?code=` link
+// format and, as a fallback, the older `#access_token=` implicit format.
+export async function exchangeRecoverySession(url: string) {
+  if (url.includes("code=")) {
+    const { error } = await supabase.auth.exchangeCodeForSession(url);
+    if (error) throw error;
+    return;
+  }
+
+  const fragment = url.split("#")[1] ?? "";
+  const params = new URLSearchParams(fragment);
+  const access_token = params.get("access_token");
+  const refresh_token = params.get("refresh_token");
+  if (!access_token || !refresh_token) {
+    throw new Error("This reset link is missing or invalid. Please request a new one.");
+  }
+  const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+  if (error) throw error;
+}
+
+// "Forgot username" step 1 — sends a one-time code to the given email if
+// it's a verified recovery email on some account. shouldCreateUser: false
+// so this can never accidentally create a new blank account.
+export async function requestUsernameRecoveryOtp(email: string) {
+  await supabase.auth.signInWithOtp({
+    email: email.trim().toLowerCase(),
+    options: { shouldCreateUser: false },
+  });
+}
+
+// Step 2 — verifying the code signs them in, so we can read their profile
+// straight away. Signs back out immediately after reading the username,
+// since "forgot username" shouldn't silently leave someone logged in on a
+// shared device.
+export async function verifyUsernameRecoveryOtp(email: string, token: string): Promise<string> {
+  const { error } = await supabase.auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: token.trim(),
+    type: "email",
+  });
+  if (error) throw error;
+
+  const profile = await getCurrentProfile();
+  await supabase.auth.signOut();
+
+  if (!profile?.username) {
+    throw new Error("Couldn't find a username for this account.");
+  }
+  return profile.username;
 }

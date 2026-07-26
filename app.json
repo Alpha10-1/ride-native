@@ -2,6 +2,7 @@
   "expo": {
     "name": "ride-native",
     "slug": "ride-native",
+    "scheme": "ridenative",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,6 +17,9 @@
       "supportsTablet": true,
       "infoPlist": {
         "LSApplicationQueriesSchemes": ["waze", "whatsapp"]
+      },
+      "config": {
+        "googleMapsApiKey": "REPLACE_WITH_YOUR_IOS_GOOGLE_MAPS_API_KEY"
       }
     },
     "android": {
@@ -25,13 +29,17 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.alpha_lubisi.ridenative"
+      "package": "com.alpha_lubisi.ridenative",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyANE32LP8cOsOcMveKgpCXDnA-eONJYuMQ"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "@rnmapbox/maps",
       "expo-font",
       "@react-native-community/datetimepicker",
       [

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Alert, Linking, Pressable } from "react-native";
-import Mapbox from "@rnmapbox/maps";
+import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 
@@ -9,17 +9,13 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
+import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
   Ride, getRideById, subscribeToRide,
   advanceRideStatus, completeRide, cancelRide,
   updateDriverLocation, formatFare, statusLabel,
   RideStop, getRideStops, markStopReached,
 } from "../../src/lib/rides";
-
-const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
-
-const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
-if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 // Simulates the driver moving from pickup toward destination in small steps.
 // Returns an array of [lng, lat] waypoints interpolated between two points.
@@ -41,7 +37,7 @@ function interpolateWaypoints(
 
 export default function ActiveTripScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
-  const cameraRef = useRef<Mapbox.Camera>(null);
+  const mapRef = useRef<MapView>(null);
   const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [ride, setRide] = useState<Ride | null>(null);
@@ -51,6 +47,8 @@ export default function ActiveTripScreen() {
   const [simulating, setSimulating] = useState(false);
   const [tripStartTime, setTripStartTime] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const promptedNavRef = useRef(false);
+  const riderCancelHandledRef = useRef(false);
 
   useEffect(() => {
     if (!rideId) {
@@ -65,11 +63,7 @@ export default function ActiveTripScreen() {
           setRide(r);
           if (r.trip_started_at) setTripStartTime(new Date(r.trip_started_at));
           // Center map on pickup initially
-          cameraRef.current?.setCamera?.({
-            centerCoordinate: [r.pickup_lng, r.pickup_lat],
-            zoomLevel: 14,
-            animationDuration: 0,
-          });
+          flyTo(mapRef, r.pickup_lng, r.pickup_lat, 14, 0);
         } else {
           setError("Couldn't find that trip. It may have been removed.");
         }
@@ -91,6 +85,21 @@ export default function ActiveTripScreen() {
       if (simulationRef.current) clearInterval(simulationRef.current);
     };
   }, [rideId]);
+
+  // If the rider cancels while the driver is on this screen, don't leave
+  // them stuck on a dead trip — notify them immediately and bounce them
+  // straight back to the dashboard, no restart required. (Driver-initiated
+  // cancellation is handled separately in handleCancel below, which already
+  // navigates home itself.)
+  useEffect(() => {
+    if (!ride || riderCancelHandledRef.current) return;
+    if (ride.status === "cancelled" && ride.cancelled_by === "rider") {
+      riderCancelHandledRef.current = true;
+      if (simulationRef.current) clearInterval(simulationRef.current);
+      router.replace("/(driver)/home");
+      Alert.alert("Ride Cancelled", "The rider has cancelled this trip.");
+    }
+  }, [ride?.status, ride?.cancelled_by]);
 
   const handleAdvance = async () => {
     if (!ride) return;
@@ -129,12 +138,7 @@ export default function ActiveTripScreen() {
       const [lng, lat] = waypoints[step];
       try {
         await updateDriverLocation(ride.id, lat, lng);
-        cameraRef.current?.setCamera?.({
-          centerCoordinate: [lng, lat],
-          zoomLevel: 15,
-          animationMode: "flyTo",
-          animationDuration: 500,
-        });
+        flyTo(mapRef, lng, lat, 15, 500);
       } catch {
         // silent — location update failure shouldn't stop simulation
       }
@@ -171,22 +175,57 @@ export default function ActiveTripScreen() {
     }
   };
 
-  const handleNavigate = async () => {
+  // Sends pickup/destination/stop coordinates straight to whichever app the
+  // driver picks — Waze via its deep link (falling back to the web link if
+  // the app isn't installed), or Google Maps via its universal directions
+  // link (works whether or not the Google Maps app is installed, on both
+  // platforms, with no extra native config needed).
+  const handleNavigateWith = async (app: "waze" | "google") => {
     const target = navTarget();
     if (!target) return;
-    const wazeUrl = `waze://?ll=${target.lat},${target.lng}&navigate=yes`;
-    const wazeWebUrl = `https://waze.com/ul?ll=${target.lat},${target.lng}&navigate=yes`;
-    try {
-      const canOpenWaze = await Linking.canOpenURL(wazeUrl);
-      if (canOpenWaze) {
-        await Linking.openURL(wazeUrl);
-      } else {
-        await Linking.openURL(wazeWebUrl);
+
+    if (app === "waze") {
+      const wazeUrl = `waze://?ll=${target.lat},${target.lng}&navigate=yes`;
+      const wazeWebUrl = `https://waze.com/ul?ll=${target.lat},${target.lng}&navigate=yes`;
+      try {
+        const canOpenWaze = await Linking.canOpenURL(wazeUrl);
+        await Linking.openURL(canOpenWaze ? wazeUrl : wazeWebUrl);
+      } catch {
+        Alert.alert("Couldn't open Waze", "Make sure Waze is installed, or open it manually to navigate.");
       }
+      return;
+    }
+
+    const googleUrl = `https://www.google.com/maps/dir/?api=1&destination=${target.lat},${target.lng}&travelmode=driving`;
+    try {
+      await Linking.openURL(googleUrl);
     } catch {
-      Alert.alert("Couldn't open Waze", "Make sure Waze is installed, or open it manually to navigate.");
+      Alert.alert("Couldn't open Google Maps", "Make sure it's installed, or open it manually to navigate.");
     }
   };
+
+  // As soon as a driver accepts a ride and lands on this screen, offer to
+  // hand pickup coordinates straight to their navigation app of choice —
+  // this is the "automatic" part; we still ask rather than silently
+  // launching an app out from under them.
+  useEffect(() => {
+    if (!ride || promptedNavRef.current) return;
+    if (ride.status !== "accepted") return;
+    const target = navTarget();
+    if (!target) return;
+
+    promptedNavRef.current = true;
+    Alert.alert(
+      "Head to pickup?",
+      "Start turn-by-turn navigation to the pickup point.",
+      [
+        { text: "Not now", style: "cancel" },
+        { text: "Google Maps", onPress: () => handleNavigateWith("google") },
+        { text: "Waze", onPress: () => handleNavigateWith("waze") },
+      ]
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ride?.status]);
 
   const handleCompleteRide = async () => {
     if (!ride) return;
@@ -288,32 +327,32 @@ export default function ActiveTripScreen() {
   return (
     <Screen>
       <View style={styles.root}>
-        <Mapbox.MapView style={StyleSheet.absoluteFill} styleURL={STYLE_URL}>
-          <Mapbox.Camera
-            ref={cameraRef}
-            defaultSettings={{ centerCoordinate: [ride.pickup_lng, ride.pickup_lat], zoomLevel: 14 }}
-          />
-
-          <Mapbox.PointAnnotation id="pickup" coordinate={[ride.pickup_lng, ride.pickup_lat]}>
+        <MapView
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
+          style={StyleSheet.absoluteFill}
+          initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
+        >
+          <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.markerPickup}>
               <Ionicons name="ellipse" size={10} color="#000" />
             </View>
-          </Mapbox.PointAnnotation>
+          </Marker>
 
           {stops.map((stop, i) => (
-            <Mapbox.PointAnnotation key={stop.id} id={`stop-${stop.id}`} coordinate={[stop.lng, stop.lat]}>
+            <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
                 <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
               </View>
-            </Mapbox.PointAnnotation>
+            </Marker>
           ))}
 
-          <Mapbox.PointAnnotation id="dest" coordinate={[ride.destination_lng, ride.destination_lat]}>
+          <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
             <View style={styles.markerDest}>
               <Ionicons name="location" size={26} color={COLORS.red} />
             </View>
-          </Mapbox.PointAnnotation>
-        </Mapbox.MapView>
+          </Marker>
+        </MapView>
 
         <SOSFab rideId={ride.id} role="driver" />
 
@@ -361,12 +400,18 @@ export default function ActiveTripScreen() {
             </View>
           </View>
 
-          {/* Turn-by-turn navigation via Waze */}
+          {/* Turn-by-turn navigation — driver's choice of app */}
           {navTarget() && (
-            <PrimaryButton
-              label="Navigate with Waze"
-              onPress={handleNavigate}
-            />
+            <View style={styles.navRow}>
+              <Pressable style={styles.navBtn} onPress={() => handleNavigateWith("google")}>
+                <Ionicons name="map" size={18} color="#000" />
+                <Text style={styles.navBtnTxt}>Google Maps</Text>
+              </Pressable>
+              <Pressable style={styles.navBtn} onPress={() => handleNavigateWith("waze")}>
+                <Ionicons name="navigate" size={18} color="#000" />
+                <Text style={styles.navBtnTxt}>Waze</Text>
+              </Pressable>
+            </View>
           )}
 
           <PrimaryButton
@@ -435,6 +480,18 @@ const styles = StyleSheet.create({
   fareText: { color: COLORS.textDim, fontSize: 13, marginTop: 4 },
   locationBlock: { gap: 4 },
   locationRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
+  navRow: { flexDirection: "row", gap: SPACE.sm },
+  navBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: RADIUS.xl,
+    backgroundColor: COLORS.red,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  navBtnTxt: { color: "#000", fontWeight: "900", fontSize: 14 },
   locationText: { flex: 1, color: COLORS.textDim, fontSize: 13 },
   dotPickup: {
     width: 14, height: 14, borderRadius: 7,

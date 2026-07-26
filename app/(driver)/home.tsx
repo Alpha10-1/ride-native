@@ -4,7 +4,7 @@ import {
   ActivityIndicator, Vibration, Animated, Alert, TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Mapbox from "@rnmapbox/maps";
+import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
 
@@ -14,9 +14,9 @@ import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import RowItem from "../../src/components/RowItem";
-import NearbyAlertBanner from "../../src/components/NearbyAlertBanner";
 import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
+import { regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
   Ride, getPendingRideRequests, getActiveRideForDriver,
   acceptRide, formatFare, TIER_CONFIG, getRideHistory,
@@ -30,10 +30,6 @@ import { getMyVerificationStatus, VerificationStatus } from "../../src/lib/verif
 import { haversineKm, formatDistance, progressiveRadiusKm } from "../../src/lib/geo";
 import { useDriverOnline } from "../../src/lib/driverStatus";
 import { updateMyLocation } from "../../src/lib/presence";
-
-const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
-const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
-if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 const MAX_SEARCH_RADIUS_KM = 1.6;
 const POLL_INTERVAL_MS = 4000;
@@ -70,7 +66,7 @@ export default function DriverHome() {
   const [elapsed, setElapsed] = useState(0);
   const [newRequestBanner, setNewRequestBanner] = useState<NearbyRide | null>(null);
 
-  const cameraRef = useRef<Mapbox.Camera>(null);
+  const mapRef = useRef<MapView>(null);
   const coordsRef = useRef<[number, number] | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -322,32 +318,36 @@ export default function DriverHome() {
         menuOpen={menuOpen}
         onMenu={() => setMenuOpen((v) => !v)}
       />
-      <View style={{ paddingHorizontal: SPACE.md }}>
-        <NearbyAlertBanner />
-      </View>
       <SOSFab role="driver" />
 
       <View style={styles.mapWrap}>
         {coords ? (
-          <Mapbox.MapView style={StyleSheet.absoluteFill} styleURL={STYLE_URL}>
-            <Mapbox.Camera ref={cameraRef} defaultSettings={{ centerCoordinate: coords, zoomLevel: 13 }} />
-
-            <Mapbox.PointAnnotation id="driver-me" coordinate={coords}>
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_GOOGLE}
+            style={StyleSheet.absoluteFill}
+            initialRegion={regionFromCenterZoom(coords[0], coords[1], 13)}
+          >
+            <Marker coordinate={{ latitude: coords[1], longitude: coords[0] }} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.driverDot}>
                 <View style={styles.driverDotCore} />
               </View>
-            </Mapbox.PointAnnotation>
+            </Marker>
 
             {online && nearby.map((r) => (
-              <Mapbox.PointAnnotation key={r.id} id={`req-${r.id}`} coordinate={[r.pickup_lng, r.pickup_lat]}>
+              <Marker
+                key={r.id}
+                coordinate={{ latitude: r.pickup_lat, longitude: r.pickup_lng }}
+                anchor={{ x: 0.5, y: 1 }}
+              >
                 <View style={styles.reqPin}>
                   <Text style={styles.reqPinTxt} numberOfLines={1}>
                     {r.estimated_fare_cents ? formatFare(r.estimated_fare_cents) : "—"}
                   </Text>
                 </View>
-              </Mapbox.PointAnnotation>
+              </Marker>
             ))}
-          </Mapbox.MapView>
+          </MapView>
         ) : (
           <View style={styles.mapFallback}>
             <ActivityIndicator color={COLORS.red} />
@@ -553,6 +553,16 @@ export default function DriverHome() {
                       </View>
                     ) : null}
 
+                    {!pendingOffer && r.rider_proposed_fare_cents ? (
+                      // Rider has broadcast a proposed fare on this ride —
+                      // that's the only way a negotiation can start.
+                      <View style={styles.negotiationBox}>
+                        <Text style={styles.negotiationTxt}>
+                          Rider proposed <Text style={{ fontWeight: "900" }}>{formatFare(r.rider_proposed_fare_cents)}</Text>
+                        </Text>
+                      </View>
+                    ) : null}
+
                     {isNegotiating ? (
                       <View style={styles.offerInputRow}>
                         <TextInput
@@ -580,11 +590,20 @@ export default function DriverHome() {
                       disabled={!!accepting}
                     />
 
-                    {!pendingOffer && !isNegotiating && (
-                      <Pressable onPress={() => { setNegotiatingRide(r.id); setOfferInput(""); }}>
-                        <Text style={styles.makeOfferLink}>Make an offer instead</Text>
+                    {/* Only shown once the rider has opened negotiation on
+                        this ride — a driver can never start one from scratch. */}
+                    {!pendingOffer && !isNegotiating && r.rider_proposed_fare_cents ? (
+                      <Pressable
+                        onPress={() => {
+                          setNegotiatingRide(r.id);
+                          setOfferInput(String((r.rider_proposed_fare_cents! / 100).toFixed(2)));
+                        }}
+                      >
+                        <Text style={styles.makeOfferLink}>
+                          Accept {formatFare(r.rider_proposed_fare_cents)} or send a counter
+                        </Text>
                       </Pressable>
-                    )}
+                    ) : null}
                   </GlassCard>
                 );
               })

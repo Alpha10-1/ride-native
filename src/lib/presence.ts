@@ -17,8 +17,8 @@ export async function setDriverOnlineStatus(
 }
 
 // Generic presence ping — any signed-in user (rider or driver). Purely so
-// proximity pushes (new ride requests to nearby drivers, public SOS alerts
-// to nearby app users) have a recent location to work from.
+// proximity pushes (new ride requests to nearby drivers) have a recent
+// location to work from.
 export async function updateMyLocation(lat: number, lng: number): Promise<void> {
   const { error } = await supabase.rpc("update_my_location", {
     lat_in: lat,

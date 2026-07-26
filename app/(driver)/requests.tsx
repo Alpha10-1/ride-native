@@ -26,7 +26,9 @@ export default function DriverRequestsScreen() {
 
   // Fare negotiation: since RLS scopes ride_offers to the caller's own
   // thread, a driver querying getRideOffers(rideId) always gets back just
-  // their own back-and-forth on that ride.
+  // their own back-and-forth on that ride. A driver can only make an offer
+  // once the rider has broadcast a proposed fare (ride.rider_proposed_fare_cents)
+  // — drivers can never start a negotiation from scratch.
   const [offersByRide, setOffersByRide] = useState<Record<string, RideOffer[]>>({});
   const [negotiatingRide, setNegotiatingRide] = useState<string | null>(null);
   const [offerInput, setOfferInput] = useState("");
@@ -222,6 +224,17 @@ export default function DriverRequestsScreen() {
                   </View>
                 ) : null}
 
+                {!pendingOffer && ride.rider_proposed_fare_cents ? (
+                  // Rider has broadcast a proposed fare on this ride — that's
+                  // the only way a negotiation can start. The driver can
+                  // accept it as-is or send a different counter.
+                  <View style={styles.negotiationBox}>
+                    <Text style={styles.negotiationTxt}>
+                      Rider proposed <Text style={{ fontWeight: "900" }}>{formatFare(ride.rider_proposed_fare_cents)}</Text>
+                    </Text>
+                  </View>
+                ) : null}
+
                 {isNegotiating ? (
                   <View style={styles.offerInputRow}>
                     <TextInput
@@ -249,11 +262,20 @@ export default function DriverRequestsScreen() {
                   disabled={!!accepting}
                 />
 
-                {!pendingOffer && !isNegotiating && (
-                  <Pressable onPress={() => { setNegotiatingRide(ride.id); setOfferInput(""); }}>
-                    <Text style={styles.makeOfferLink}>Make an offer instead</Text>
+                {/* Only shown once the rider has opened negotiation on this
+                    ride — a driver can never start one from scratch. */}
+                {!pendingOffer && !isNegotiating && ride.rider_proposed_fare_cents ? (
+                  <Pressable
+                    onPress={() => {
+                      setNegotiatingRide(ride.id);
+                      setOfferInput(String((ride.rider_proposed_fare_cents! / 100).toFixed(2)));
+                    }}
+                  >
+                    <Text style={styles.makeOfferLink}>
+                      Accept {formatFare(ride.rider_proposed_fare_cents)} or send a counter
+                    </Text>
                   </Pressable>
-                )}
+                ) : null}
               </GlassCard>
             );
           })

@@ -5,7 +5,7 @@ import { router } from "expo-router";
 import * as Location from "expo-location";
 
 import { COLORS } from "../theme/tokens";
-import { getEmergencyContacts, triggerSOS, alertEmergencyContact } from "../lib/safety";
+import { getEmergencyContacts, triggerSOS, alertEmergencyContact, EMERGENCY_MESSAGE_TEMPLATES } from "../lib/safety";
 
 // Always available (per design), but meant to be placed prominently as a
 // floating button on active trip screens.
@@ -16,7 +16,7 @@ export default function SOSFab({ rideId, role = "rider" }: { rideId?: string; ro
   const handlePress = () => {
     Alert.alert(
       "Need help?",
-      "Alert your emergency contacts now, or open Safety for more options (including sharing with nearby app users).",
+      "Alert your emergency contacts now, or open Safety for more options (choosing a message, or picking specific contacts).",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -51,15 +51,20 @@ export default function SOSFab({ rideId, role = "rider" }: { rideId?: string; ro
       }
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
 
+      const defaultMessage = EMERGENCY_MESSAGE_TEMPLATES.find((t) => t.id === "general")!.body;
+
       await triggerSOS({
         shareScope: "emergency_only",
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         rideId,
+        messageTemplate: "general",
+        messageBody: defaultMessage,
+        contactsNotified: contacts.length,
       });
 
       for (const c of contacts) {
-        await alertEmergencyContact(c.phone, pos.coords.latitude, pos.coords.longitude);
+        await alertEmergencyContact(c.phone, pos.coords.latitude, pos.coords.longitude, defaultMessage);
       }
       Alert.alert("Alert sent", "Your emergency contacts have been notified.");
     } catch (e: any) {

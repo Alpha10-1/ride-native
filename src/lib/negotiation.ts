@@ -25,8 +25,12 @@ export async function getRideOffers(rideId: string): Promise<RideOffer[]> {
   return (data ?? []) as RideOffer[];
 }
 
-// driverId is required when a rider is countering an existing thread;
-// omit it when a driver is starting or continuing their own thread.
+// Only a rider can start a negotiation (see proposeRiderFare in rides.ts,
+// which sets rides.rider_proposed_fare_cents). Once that's set, drivers can
+// respond by calling this to counter it — a driver can never create the
+// first ride_offers row for a ride the rider hasn't opened up (enforced by
+// a DB trigger). driverId is required when a rider is countering an
+// existing thread; omit it when a driver is responding to/continuing one.
 export async function proposeOffer(
   rideId: string,
   amountCents: number,

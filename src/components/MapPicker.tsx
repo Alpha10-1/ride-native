@@ -1,8 +1,9 @@
 import React, { useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import Mapbox from "@rnmapbox/maps";
+import MapView, { PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, RADIUS, SPACE } from "../theme/tokens";
+import { regionFromCenterZoom } from "../lib/mapCamera";
 
 type Props = {
   initialCenter: [number, number]; // [lng, lat]
@@ -10,27 +11,20 @@ type Props = {
 };
 
 export default function MapPicker({ initialCenter, onConfirm }: Props) {
-  const cameraRef = useRef<Mapbox.Camera>(null);
+  const mapRef = useRef<MapView>(null);
   const [center, setCenter] = useState<[number, number]>(initialCenter);
 
   return (
     <View style={styles.root}>
-      <Mapbox.MapView
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
         style={styles.map}
-        styleURL="mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7"
-        onCameraChanged={(state: any) => {
-          const c = state?.properties?.center;
-          if (c) setCenter([c[0], c[1]]);
+        initialRegion={regionFromCenterZoom(initialCenter[0], initialCenter[1], 15)}
+        onRegionChangeComplete={(region: Region) => {
+          setCenter([region.longitude, region.latitude]);
         }}
-      >
-        <Mapbox.Camera
-          ref={cameraRef}
-          defaultSettings={{
-            centerCoordinate: initialCenter,
-            zoomLevel: 15,
-          }}
-        />
-      </Mapbox.MapView>
+      />
 
       {/* Fixed center pin, overlaid on top of the map (doesn't move with the map) */}
       <View style={styles.pinWrap} pointerEvents="none">

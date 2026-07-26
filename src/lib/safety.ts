@@ -9,7 +9,16 @@ export type EmergencyContact = {
   created_at: string;
 };
 
-export type ShareScope = "emergency_only" | "public";
+export type ShareScope = "emergency_only";
+
+export type EmergencyMessageTemplateId = "general" | "unsafe" | "call_me" | "medical" | "custom";
+
+export const EMERGENCY_MESSAGE_TEMPLATES: { id: Exclude<EmergencyMessageTemplateId, "custom">; label: string; body: string }[] = [
+  { id: "general", label: "General SOS", body: "I need help. This isn't a drill." },
+  { id: "unsafe", label: "I feel unsafe", body: "I don't feel safe right now. Please check in with me." },
+  { id: "call_me", label: "Please call me", body: "I need you to call me right now — it's urgent." },
+  { id: "medical", label: "Medical emergency", body: "This is a medical emergency. I need help immediately." },
+];
 
 export type SOSAlert = {
   id: string;
@@ -64,14 +73,48 @@ export async function triggerSOS(params: {
   lat: number;
   lng: number;
   rideId?: string;
-  consentGiven?: boolean;
+  messageTemplate?: EmergencyMessageTemplateId;
+  messageBody?: string;
+  contactsNotified?: number;
 }): Promise<SOSAlert> {
   const { data, error } = await supabase.rpc("trigger_sos", {
     share_scope_in: params.shareScope,
     lat_in: params.lat,
     lng_in: params.lng,
     ride_id_in: params.rideId ?? null,
-    consent_given_in: params.consentGiven ?? false,
+    consent_given_in: false,
+  });
+  if (error) throw error;
+  const alert = data as SOSAlert;
+
+  // Best-effort — an admin dashboard being able to see what was sent and to
+  // whom matters, but shouldn't block the alert itself from going through
+  // if this secondary call fails for any reason.
+  if (params.messageTemplate || params.messageBody || params.contactsNotified !== undefined) {
+    try {
+      await recordSOSDetails(alert.id, params.messageTemplate ?? null, params.messageBody ?? null, params.contactsNotified ?? null);
+    } catch {
+      // non-critical
+    }
+  }
+
+  return alert;
+}
+
+// Attaches the message that was actually sent and how many contacts were
+// notified to an SOS event, so it shows up as more than a bare marker in
+// the admin dashboard.
+export async function recordSOSDetails(
+  alertId: string,
+  messageTemplate: string | null,
+  messageBody: string | null,
+  contactsNotified: number | null
+): Promise<SOSAlert> {
+  const { data, error } = await supabase.rpc("record_sos_details", {
+    alert_id_in: alertId,
+    message_template_in: messageTemplate,
+    message_body_in: messageBody,
+    contacts_notified_in: contactsNotified,
   });
   if (error) throw error;
   return data as SOSAlert;
@@ -100,27 +143,17 @@ export async function getMyActiveSOSAlert(): Promise<SOSAlert | null> {
   return data;
 }
 
-export async function getNearbyPublicAlerts(
-  lat: number,
-  lng: number,
-  radiusKm = 3
-): Promise<SOSAlert[]> {
-  const { data, error } = await supabase.rpc("get_nearby_public_sos_alerts", {
-    lat_in: lat,
-    lng_in: lng,
-    radius_km_in: radiusKm,
-  });
-  if (error) throw error;
-  return (data ?? []) as SOSAlert[];
-}
+// Nearby-app-user alerting has been intentionally removed — SOS alerts
+// only ever reach the person's own emergency contacts. See the
+// safety-updates migration for the DB-level constraint backing this up.
 
 // Opens the native SMS composer, pre-filled with an alert message and a
 // Google Maps link to the given coordinates. There's no SMS gateway in
 // this project, so the message is sent from the user's own phone/number —
 // this only prepares it; the person still has to hit send.
-export async function openSOSTextTo(phone: string, lat: number, lng: number) {
+export async function openSOSTextTo(phone: string, lat: number, lng: number, messageBody?: string) {
   const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
-  const message = `SOS: I need help. My current location: ${mapsUrl}`;
+  const message = `${messageBody ?? "SOS: I need help."} My current location: ${mapsUrl}`;
   const separator = Platform.OS === "ios" ? "&" : "?";
   const url = `sms:${phone}${separator}body=${encodeURIComponent(message)}`;
   try {
@@ -143,9 +176,9 @@ function toWhatsAppNumber(phone: string): string {
 // Opens WhatsApp's click-to-chat link, pre-filled the same way as the SMS
 // alert. Falls back silently if WhatsApp isn't installed — the SMS alert
 // (or the in-app alert record itself) still goes out regardless.
-export async function openSOSWhatsAppTo(phone: string, lat: number, lng: number) {
+export async function openSOSWhatsAppTo(phone: string, lat: number, lng: number, messageBody?: string) {
   const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
-  const message = `SOS: I need help. My current location: ${mapsUrl}`;
+  const message = `${messageBody ?? "SOS: I need help."} My current location: ${mapsUrl}`;
   const number = toWhatsAppNumber(phone);
   const url = `whatsapp://send?phone=${number}&text=${encodeURIComponent(message)}`;
   try {
@@ -160,9 +193,9 @@ export async function openSOSWhatsAppTo(phone: string, lat: number, lng: number)
 // cost) and only falls back to SMS if WhatsApp isn't installed — firing
 // both unconditionally would just yank the user out of the first composer
 // into the second before they could hit send.
-export async function alertEmergencyContact(phone: string, lat: number, lng: number) {
+export async function alertEmergencyContact(phone: string, lat: number, lng: number, messageBody?: string) {
   const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
-  const message = `SOS: I need help. My current location: ${mapsUrl}`;
+  const message = `${messageBody ?? "SOS: I need help."} My current location: ${mapsUrl}`;
   const number = toWhatsAppNumber(phone);
   const whatsappUrl = `whatsapp://send?phone=${number}&text=${encodeURIComponent(message)}`;
 
@@ -176,5 +209,5 @@ export async function alertEmergencyContact(phone: string, lat: number, lng: num
     // fall through to SMS
   }
 
-  await openSOSTextTo(phone, lat, lng);
+  await openSOSTextTo(phone, lat, lng, messageBody);
 }

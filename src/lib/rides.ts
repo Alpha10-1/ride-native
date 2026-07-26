@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
+import { decodePolyline } from "./polyline";
 
-const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY as string;
 
 export type RideTier = "economy" | "comfort" | "xl";
 
@@ -41,6 +42,7 @@ export type Ride = {
   ride_tier: RideTier;
   estimated_fare_cents: number | null;
   final_fare_cents: number | null;
+  rider_proposed_fare_cents: number | null;
   cancellation_fee_cents: number | null;
   driver_lat: number | null;
   driver_lng: number | null;
@@ -72,30 +74,50 @@ export type RideStop = {
 };
 
 // ============================================
-// MAPBOX DIRECTIONS
+// GOOGLE DIRECTIONS
 // ============================================
 // Accepts 2+ waypoints in visit order: [pickup, ...stops, destination].
 // Backward compatible with the old two-point call — just pass [from, to].
+// geometry keeps the same GeoJSON-style shape ({ type: "LineString",
+// coordinates: [lng, lat][] }) the rest of the app already expects, so
+// screens only need to change how they *render* it (react-native-maps
+// Polyline instead of Mapbox ShapeSource), not how they fetch/store it.
 export async function getRoute(waypoints: [number, number][]): Promise<RouteResult> {
   if (waypoints.length < 2) throw new Error("getRoute needs at least 2 points.");
 
-  const coordString = waypoints.map(([lng, lat]) => `${lng},${lat}`).join(";");
-  const url =
-    `https://api.mapbox.com/directions/v5/mapbox/driving/` +
-    `${coordString}` +
-    `?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+  const [originLng, originLat] = waypoints[0];
+  const [destLng, destLat] = waypoints[waypoints.length - 1];
+  const via = waypoints.slice(1, -1);
 
-  const res = await fetch(url);
+  const params = new URLSearchParams({
+    origin: `${originLat},${originLng}`,
+    destination: `${destLat},${destLng}`,
+    key: GOOGLE_MAPS_API_KEY,
+  });
+  if (via.length > 0) {
+    params.set("waypoints", via.map(([lng, lat]) => `${lat},${lng}`).join("|"));
+  }
+
+  const res = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
   if (!res.ok) throw new Error(`Directions API error (${res.status})`);
 
   const json = await res.json();
-  const route = json?.routes?.[0];
-  if (!route) throw new Error("No route found between these points.");
+  if (json.status !== "OK" || !json.routes?.[0]) {
+    throw new Error(json.error_message || `No route found (${json.status})`);
+  }
+
+  const route = json.routes[0];
+  const legs = route.legs ?? [];
+  const distanceM = legs.reduce((sum: number, leg: any) => sum + (leg.distance?.value ?? 0), 0);
+  const durationS = legs.reduce((sum: number, leg: any) => sum + (leg.duration?.value ?? 0), 0);
+
+  const points = decodePolyline(route.overview_polyline?.points ?? "");
+  const coordinates: [number, number][] = points.map((p) => [p.lng, p.lat]);
 
   return {
-    distanceKm: route.distance / 1000,
-    durationMin: route.duration / 60,
-    geometry: route.geometry,
+    distanceKm: distanceM / 1000,
+    durationMin: durationS / 60,
+    geometry: { type: "LineString", coordinates },
   };
 }
 
@@ -311,6 +333,26 @@ export async function markStopReached(rideId: string, stopId: string): Promise<R
   });
   if (error) throw error;
   return data as RideStop;
+}
+
+// The lowest amount a rider is allowed to propose: 50% of the estimated fare.
+// Mirrors the check enforced server-side in propose_rider_fare / the
+// ride_offers trigger — kept here so the UI can validate before it even
+// hits the network.
+export function minRiderOfferCents(estimatedFareCents: number): number {
+  return Math.ceil(estimatedFareCents * 0.5);
+}
+
+// Sets/updates the rider's broadcast fare proposal on a still-pending ride.
+// Any driver polling getPendingRideRequests can see this and either accept
+// it or counter — this is the only way a negotiation on a ride can start.
+export async function proposeRiderFare(rideId: string, amountCents: number): Promise<Ride> {
+  const { data, error } = await supabase.rpc("propose_rider_fare", {
+    ride_id_in: rideId,
+    amount_cents_in: Math.round(amountCents),
+  });
+  if (error) throw error;
+  return data as Ride;
 }
 
 export async function acceptRide(rideId: string): Promise<Ride> {

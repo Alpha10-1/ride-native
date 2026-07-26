@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, TextInput } from "react-native";
-import Mapbox from "@rnmapbox/maps";
+import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 
@@ -11,10 +11,12 @@ import PulsingDot from "../../src/components/PulsingDot";
 import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { bearing } from "../../src/lib/geo";
+import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
   Ride, getRideById, subscribeToRide, cancelRide,
   formatFare, statusLabel, TIER_CONFIG,
   RideStop, getRideStops, subscribeToRideStops,
+  minRiderOfferCents, proposeRiderFare,
 } from "../../src/lib/rides";
 import {
   RideOffer, OfferThread, getRideOffers, proposeOffer, respondToOffer,
@@ -22,11 +24,6 @@ import {
 } from "../../src/lib/negotiation";
 
 const DRIVER_MOVE_DURATION_MS = 900;
-
-const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
-
-const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
-if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 function etaMinutes(ride: Ride): number | null {
   if (!ride.accepted_at) return null;
@@ -38,7 +35,7 @@ function etaMinutes(ride: Ride): number | null {
 
 export default function RideTrackingScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
-  const cameraRef = useRef<Mapbox.Camera>(null);
+  const mapRef = useRef<MapView>(null);
   const [ride, setRide] = useState<Ride | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +48,12 @@ export default function RideTrackingScreen() {
   const [counterInput, setCounterInput] = useState("");
   const [offerBusy, setOfferBusy] = useState<string | null>(null);
   const [stops, setStops] = useState<RideStop[]>([]);
+
+  // Rider-initiated broadcast fare proposal — this is the only way a
+  // negotiation on a ride can start; drivers can only respond to it.
+  const [riderOfferInput, setRiderOfferInput] = useState("");
+  const [editingRiderOffer, setEditingRiderOffer] = useState(false);
+  const [riderOfferBusy, setRiderOfferBusy] = useState(false);
 
   // Smoothly-animated driver marker position + heading, instead of the dot
   // jumping straight to each new GPS update.
@@ -134,12 +137,7 @@ export default function RideTrackingScreen() {
 
     prevDriverPos.current = next;
 
-    cameraRef.current?.setCamera?.({
-      centerCoordinate: [next.lng, next.lat],
-      zoomLevel: 15,
-      animationMode: "flyTo",
-      animationDuration: 600,
-    });
+    flyTo(mapRef, next.lng, next.lat, 15, 600);
 
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -229,6 +227,31 @@ export default function RideTrackingScreen() {
     }
   };
 
+  const handleProposeRiderFare = async () => {
+    if (!rideId || !ride) return;
+    const amount = Math.round(parseFloat(riderOfferInput) * 100);
+    if (!amount || amount <= 0) {
+      Alert.alert("Enter an amount", "Please enter a valid fare offer.");
+      return;
+    }
+    const min = minRiderOfferCents(ride.estimated_fare_cents ?? 0);
+    if (amount < min) {
+      Alert.alert("Offer too low", `Your offer can't be less than ${formatFare(min)} (50% of the estimated fare).`);
+      return;
+    }
+    setRiderOfferBusy(true);
+    try {
+      const updated = await proposeRiderFare(rideId, amount);
+      setRide(updated);
+      setEditingRiderOffer(false);
+      setRiderOfferInput("");
+    } catch (e: any) {
+      Alert.alert("Couldn't send your offer", e?.message ?? "Please try again.");
+    } finally {
+      setRiderOfferBusy(false);
+    }
+  };
+
   const handleCancel = () => {
     Alert.alert(
       "Cancel Ride",
@@ -286,14 +309,14 @@ export default function RideTrackingScreen() {
   return (
     <Screen>
       <View style={styles.root}>
-        <Mapbox.MapView style={StyleSheet.absoluteFill} styleURL={STYLE_URL}>
-          <Mapbox.Camera
-            ref={cameraRef}
-            defaultSettings={{ centerCoordinate: [ride.pickup_lng, ride.pickup_lat], zoomLevel: 14 }}
-          />
-
+        <MapView
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
+          style={StyleSheet.absoluteFill}
+          initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
+        >
           {/* Pickup — pulses while we're still searching for a driver */}
-          <Mapbox.PointAnnotation id="pickup" coordinate={[ride.pickup_lng, ride.pickup_lat]}>
+          <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.markerPickupWrap}>
               {ride.status === "requested" && (
                 <View style={styles.pulseWrap} pointerEvents="none">
@@ -304,38 +327,37 @@ export default function RideTrackingScreen() {
                 <Ionicons name="ellipse" size={10} color="#000" />
               </View>
             </View>
-          </Mapbox.PointAnnotation>
+          </Marker>
 
           {/* Stops */}
           {stops.map((stop, i) => (
-            <Mapbox.PointAnnotation key={stop.id} id={`stop-${stop.id}`} coordinate={[stop.lng, stop.lat]}>
+            <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
                 <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
               </View>
-            </Mapbox.PointAnnotation>
+            </Marker>
           ))}
 
           {/* Destination */}
-          <Mapbox.PointAnnotation id="dest" coordinate={[ride.destination_lng, ride.destination_lat]}>
+          <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
             <View style={styles.markerDest}>
               <Ionicons name="location" size={26} color={COLORS.red} />
             </View>
-          </Mapbox.PointAnnotation>
+          </Marker>
 
           {/* Driver — animates smoothly between updates and rotates to face
               its direction of travel toward pickup/destination. */}
           {driverPos && (
-            <Mapbox.PointAnnotation
-              id="driver"
-              coordinate={[driverPos.lng, driverPos.lat]}
+            <Marker
+              coordinate={{ latitude: driverPos.lat, longitude: driverPos.lng }}
               anchor={{ x: 0.5, y: 0.5 }}
             >
               <View style={[styles.driverDot, { transform: [{ rotate: `${driverBearing}deg` }] }]}>
                 <Ionicons name="navigate" size={16} color="#000" />
               </View>
-            </Mapbox.PointAnnotation>
+            </Marker>
           )}
-        </Mapbox.MapView>
+        </MapView>
 
         <SOSFab rideId={ride.id} role="rider" />
 
@@ -380,6 +402,52 @@ export default function RideTrackingScreen() {
                   <Text style={styles.stopAddress} numberOfLines={1}>{stop.address}</Text>
                 </View>
               ))}
+            </GlassCard>
+          )}
+
+          {ride.status === "requested" && (
+            <GlassCard style={{ gap: 10 }}>
+              <Text style={styles.offersHeading}>Propose Your Fare</Text>
+              {ride.rider_proposed_fare_cents ? (
+                <Text style={styles.negotiationTxt}>
+                  You offered <Text style={{ fontWeight: "900" }}>{formatFare(ride.rider_proposed_fare_cents)}</Text>
+                  {" "}— visible to nearby drivers.
+                </Text>
+              ) : (
+                <Text style={styles.negotiationTxt}>
+                  Propose a fare and any nearby driver can accept it or counter.
+                  {ride.estimated_fare_cents
+                    ? ` Minimum ${formatFare(minRiderOfferCents(ride.estimated_fare_cents))}.`
+                    : ""}
+                </Text>
+              )}
+
+              {editingRiderOffer ? (
+                <View style={styles.offerInputRow}>
+                  <TextInput
+                    value={riderOfferInput}
+                    onChangeText={setRiderOfferInput}
+                    placeholder="Your price (R)"
+                    placeholderTextColor={COLORS.textFaint}
+                    keyboardType="decimal-pad"
+                    style={styles.offerInput}
+                    autoFocus
+                  />
+                  <Pressable
+                    style={[styles.smallBtn, styles.smallBtnFilled]}
+                    disabled={riderOfferBusy}
+                    onPress={handleProposeRiderFare}
+                  >
+                    <Text style={styles.smallBtnFilledTxt}>{riderOfferBusy ? "..." : "Send"}</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable onPress={() => { setEditingRiderOffer(true); setRiderOfferInput(""); }}>
+                  <Text style={styles.makeOfferLink}>
+                    {ride.rider_proposed_fare_cents ? "Update your offer" : "Propose a fare"}
+                  </Text>
+                </Pressable>
+              )}
             </GlassCard>
           )}
 
@@ -555,6 +623,8 @@ const styles = StyleSheet.create({
   offerDriverName: { color: COLORS.text, fontWeight: "900", fontSize: 15 },
   offerAmount: { color: COLORS.red, fontWeight: "900", fontSize: 18 },
   offerSubtitle: { color: COLORS.textDim, fontSize: 12 },
+  negotiationTxt: { color: COLORS.textDim, fontSize: 13, flexShrink: 1 },
+  makeOfferLink: { color: COLORS.red, fontWeight: "800", fontSize: 13, textAlign: "center" },
   negotiationBtnRow: { flexDirection: "row", gap: 8 },
   offerInputRow: { flexDirection: "row", gap: 8 },
   offerInput: {

@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, Pressable, TextInput,
   FlatList, ActivityIndicator, ScrollView, Alert,
 } from "react-native";
-import Mapbox from "@rnmapbox/maps";
+import MapView, { PROVIDER_GOOGLE, Marker, Polyline, Region } from "react-native-maps";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
@@ -16,11 +16,11 @@ import SwipeableSheet from "../../src/components/SwipeableSheet";
 import DraggableSheet from "../../src/components/DraggableSheet";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
-import NearbyAlertBanner from "../../src/components/NearbyAlertBanner";
 import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
 import { reverseGeocode } from "../../src/lib/geocoding";
+import { flyTo, fitToPoints, regionFromCenterZoom, toLatLngList } from "../../src/lib/mapCamera";
 import {
   getRoute, requestRide, requestScheduledRide, formatFare, demandLabel,
   TIER_CONFIG, RideTier, getActiveRideForRider,
@@ -28,15 +28,11 @@ import {
 import { updateMyLocation } from "../../src/lib/presence";
 import { haversineKm } from "../../src/lib/geo";
 
-const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;
-const STYLE_URL = "mapbox://styles/thandoluphoko9/cmqn0smkv00b001se3b9gf6g7";
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY as string;
 // Distinct from the app's red accent (used for pins/UI) so the route reads
-// clearly against the dark map style instead of blending into it.
+// clearly against the map background instead of blending into it.
 const ROUTE_LINE_COLOR = "#3B9EFF";
 const DEFAULT_CENTER: [number, number] = [28.0473, -26.2041];
-
-// Initialize Mapbox token before any MapView mounts
-if (MAPBOX_TOKEN) Mapbox.setAccessToken(MAPBOX_TOKEN);
 
 type Step = "sheet" | "input_pickup" | "input_destination" | "pin" | "tiers" | "requesting";
 type LocationPoint = { label: string; address: string; lat: number; lng: number };
@@ -46,7 +42,7 @@ const TIERS: RideTier[] = ["economy", "comfort", "xl"];
 
 export default function RiderHome() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const cameraRef = useRef<Mapbox.Camera>(null);
+  const mapRef = useRef<MapView>(null);
   const [step, setStep] = useState<Step>("sheet");
 
   // Location state
@@ -120,12 +116,7 @@ export default function RiderHome() {
             lng: pos.coords.longitude,
           };
           setCurrentLocation(loc);
-          cameraRef.current?.setCamera?.({
-            centerCoordinate: [pos.coords.longitude, pos.coords.latitude],
-            zoomLevel: 14,
-            animationMode: "flyTo",
-            animationDuration: 800,
-          });
+          flyTo(mapRef, pos.coords.longitude, pos.coords.latitude, 14, 800);
         }
       } catch {
         // non-critical
@@ -172,21 +163,14 @@ export default function RiderHome() {
     setEstimatedDistance(approxDistanceKm);
     setEstimatedDuration(approxDurationMin);
     setRouteGeoJSON({
-      type: "Feature",
-      properties: {},
-      geometry: {
-        type: "LineString",
-        coordinates: waypoints.map((w) => [w.lng, w.lat]),
-      },
+      type: "LineString",
+      coordinates: waypoints.map((w) => [w.lng, w.lat]),
     } as any);
     setRouteRefining(true);
 
-    cameraRef.current?.fitBounds?.(
-      [pickup.lng, pickup.lat],
-      [destination.lng, destination.lat],
-      [100, 60, 280, 60],
-      500
-    );
+    fitToPoints(mapRef, [[pickup.lng, pickup.lat], [destination.lng, destination.lat]], {
+      top: 100, right: 60, bottom: 280, left: 60,
+    });
 
     let cancelled = false;
     (async () => {
@@ -201,20 +185,7 @@ export default function RiderHome() {
         // curved road never gets clipped at the edges of the map.
         const coords: [number, number][] = route.geometry?.coordinates ?? [];
         if (coords.length > 0) {
-          let minLng = coords[0][0], maxLng = coords[0][0];
-          let minLat = coords[0][1], maxLat = coords[0][1];
-          for (const [lng, lat] of coords) {
-            if (lng < minLng) minLng = lng;
-            if (lng > maxLng) maxLng = lng;
-            if (lat < minLat) minLat = lat;
-            if (lat > maxLat) maxLat = lat;
-          }
-          cameraRef.current?.fitBounds?.(
-            [maxLng, maxLat],
-            [minLng, minLat],
-            [90, 50, 300, 50],
-            700
-          );
+          fitToPoints(mapRef, coords, { top: 90, right: 50, bottom: 300, left: 50 });
         }
       } catch {
         // keep the straight-line estimate — still useful, just less precise
@@ -232,25 +203,25 @@ export default function RiderHome() {
     const t = setTimeout(async () => {
       setSearching(true);
       try {
-        const url = `https://api.mapbox.com/search/geocode/v6/forward?q=${encodeURIComponent(searchQuery)}&country=ZA&language=en&limit=6&access_token=${MAPBOX_TOKEN}`;
+        const params = new URLSearchParams({
+          address: searchQuery,
+          region: "za",
+          key: GOOGLE_MAPS_API_KEY,
+        });
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`;
         const res = await fetch(url);
         const json = await res.json();
-        const results: SearchResult[] = (json.features ?? []).map((f: any) => ({
-          id: f.id,
-          name: f.properties?.name ?? f.properties?.full_address,
-          address: f.properties?.full_address ?? "",
-          lat: f.geometry?.coordinates?.[1],
-          lng: f.geometry?.coordinates?.[0],
+        const results: SearchResult[] = (json.results ?? []).map((r: any) => ({
+          id: r.place_id,
+          name: (r.formatted_address ?? "").split(",")[0],
+          address: r.formatted_address ?? "",
+          lat: r.geometry?.location?.lat,
+          lng: r.geometry?.location?.lng,
         }));
         setSearchResults(results);
         // Preview first result on map
         if (results[0]) {
-          cameraRef.current?.setCamera?.({
-            centerCoordinate: [results[0].lng, results[0].lat],
-            zoomLevel: 14,
-            animationMode: "flyTo",
-            animationDuration: 400,
-          });
+          flyTo(mapRef, results[0].lng, results[0].lat, 14, 400);
         }
       } catch { setSearchResults([]); }
       finally { setSearching(false); }
@@ -426,63 +397,66 @@ export default function RiderHome() {
 
       <View style={styles.root}>
         {/* ── MAP ── */}
-        <Mapbox.MapView
+        <MapView
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
           style={StyleSheet.absoluteFill}
-          styleURL={STYLE_URL}
-          onCameraChanged={(state: any) => {
+          initialRegion={regionFromCenterZoom(DEFAULT_CENTER[0], DEFAULT_CENTER[1], 13)}
+          onRegionChangeComplete={(region: Region) => {
             if (step === "pin") {
-              const c = state?.properties?.center;
-              if (c) setPinCoords([c[0], c[1]]);
+              setPinCoords([region.longitude, region.latitude]);
             }
           }}
         >
-          <Mapbox.Camera
-            ref={cameraRef}
-            defaultSettings={{ centerCoordinate: DEFAULT_CENTER, zoomLevel: 13 }}
-          />
-
           {/* Pickup marker */}
           {pickup && step !== "pin" && (
-            <Mapbox.PointAnnotation id="pickup" coordinate={[pickup.lng, pickup.lat]}>
+            <Marker coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.markerPickup}>
                 <Ionicons name="ellipse" size={10} color="#000" />
               </View>
-            </Mapbox.PointAnnotation>
+            </Marker>
           )}
 
           {/* Stop markers */}
           {step !== "pin" && stops.map((stop, i) => (
-            <Mapbox.PointAnnotation key={i} id={`stop-${i}`} coordinate={[stop.lng, stop.lat]}>
+            <Marker key={i} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
               <View style={styles.markerStop}>
                 <Text style={styles.markerStopTxt}>{i + 1}</Text>
               </View>
-            </Mapbox.PointAnnotation>
+            </Marker>
           ))}
 
           {/* Destination marker */}
           {destination && step !== "pin" && (
-            <Mapbox.PointAnnotation id="dest" coordinate={[destination.lng, destination.lat]}>
+            <Marker coordinate={{ latitude: destination.lat, longitude: destination.lng }} anchor={{ x: 0.5, y: 1 }}>
               <View style={styles.markerDest}>
                 <Ionicons name="location" size={28} color={COLORS.red} />
               </View>
-            </Mapbox.PointAnnotation>
+            </Marker>
           )}
 
-          {/* Route line */}
-          {routeGeoJSON && (
-            <Mapbox.ShapeSource id="route" shape={routeGeoJSON}>
-              {/* Dark casing underneath for contrast on any map background */}
-              <Mapbox.LineLayer
-                id="routeLineCasing"
-                style={{ lineColor: "#0a0a0a", lineWidth: 8, lineOpacity: 0.6, lineCap: "round", lineJoin: "round" }}
+          {/* Route line — dark casing underneath for contrast on any map
+              background, colored line on top. Two overlapping Polylines
+              since react-native-maps has no single "line + casing" style. */}
+          {routeGeoJSON?.coordinates && (
+            <>
+              <Polyline
+                coordinates={toLatLngList(routeGeoJSON.coordinates)}
+                strokeColor="#0a0a0a"
+                strokeWidth={8}
+                lineCap="round"
+                lineJoin="round"
               />
-              <Mapbox.LineLayer
-                id="routeLine"
-                style={{ lineColor: ROUTE_LINE_COLOR, lineWidth: 5, lineOpacity: 1, lineCap: "round", lineJoin: "round" }}
+              <Polyline
+                coordinates={toLatLngList(routeGeoJSON.coordinates)}
+                strokeColor={ROUTE_LINE_COLOR}
+                strokeWidth={5}
+                lineCap="round"
+                lineJoin="round"
               />
-            </Mapbox.ShapeSource>
+            </>
           )}
-        </Mapbox.MapView>
+        </MapView>
 
         {/* ── FIXED CENTER PIN (pin mode only) ── */}
         {step === "pin" && (
@@ -520,8 +494,6 @@ export default function RiderHome() {
             }}
           >
             <View style={{ gap: SPACE.sm }}>
-              <NearbyAlertBanner />
-
               {/* Where to? input trigger */}
               <Pressable
                 style={styles.whereToBtn}

@@ -14,15 +14,10 @@ import TextField from "../components/TextField";
 import { COLORS, SPACE, RADIUS } from "../theme/tokens";
 import { getCurrentProfile } from "../lib/auth";
 import {
-  EmergencyContact, SOSAlert,
+  EmergencyContact, SOSAlert, EmergencyMessageTemplateId, EMERGENCY_MESSAGE_TEMPLATES,
   getEmergencyContacts, addEmergencyContact, deleteEmergencyContact,
   getMyActiveSOSAlert, triggerSOS, resolveSOS, alertEmergencyContact,
 } from "../lib/safety";
-
-const CONSENT_TEXT =
-  "Turning this on will show your live location to other signed-in riders and drivers nearby, in addition to your emergency contacts, until you mark yourself safe. " +
-  "This is meant for situations where you need help fast and don't just want to wait on a private contact to respond. " +
-  "Your name and exact identity aren't shown to other users — just an alert marker and your approximate location.";
 
 export default function SafetyScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -35,8 +30,10 @@ export default function SafetyScreen() {
   const [phone, setPhone] = useState("");
   const [addingContact, setAddingContact] = useState(false);
 
-  const [showConsent, setShowConsent] = useState(false);
-  const [consentChecked, setConsentChecked] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [templateId, setTemplateId] = useState<EmergencyMessageTemplateId>("general");
+  const [customMessage, setCustomMessage] = useState("");
   const [triggering, setTriggering] = useState(false);
   const [resolving, setResolving] = useState(false);
 
@@ -47,6 +44,7 @@ export default function SafetyScreen() {
       const [c, alert] = await Promise.all([getEmergencyContacts(), getMyActiveSOSAlert()]);
       setContacts(c);
       setActiveAlert(alert);
+      setSelectedContactIds((prev) => (prev.size === 0 ? new Set(c.map((x) => x.id)) : prev));
     } catch {
       // keep whatever we had
     } finally {
@@ -65,6 +63,7 @@ export default function SafetyScreen() {
     try {
       const contact = await addEmergencyContact(name, phone);
       setContacts((prev) => [...prev, contact]);
+      setSelectedContactIds((prev) => new Set(prev).add(contact.id));
       setName("");
       setPhone("");
     } catch (e: any) {
@@ -84,6 +83,11 @@ export default function SafetyScreen() {
           try {
             await deleteEmergencyContact(id);
             setContacts((prev) => prev.filter((c) => c.id !== id));
+            setSelectedContactIds((prev) => {
+              const next = new Set(prev);
+              next.delete(id);
+              return next;
+            });
           } catch (e: any) {
             Alert.alert("Couldn't remove contact", e?.message ?? "Please try again.");
           }
@@ -102,9 +106,28 @@ export default function SafetyScreen() {
     return { lat: pos.coords.latitude, lng: pos.coords.longitude };
   };
 
-  const handleTrigger = async (shareScope: "emergency_only" | "public") => {
-    if (contacts.length === 0 && shareScope === "emergency_only") {
-      Alert.alert("Add a contact first", "Add at least one emergency contact so someone can be alerted.");
+  const toggleContact = (id: string) => {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const resolvedMessage = (): string => {
+    if (templateId === "custom") return customMessage.trim() || "I need help.";
+    return EMERGENCY_MESSAGE_TEMPLATES.find((t) => t.id === templateId)?.body ?? "I need help.";
+  };
+
+  const handleTrigger = async () => {
+    const toAlert = contacts.filter((c) => selectedContactIds.has(c.id));
+    if (toAlert.length === 0) {
+      Alert.alert("Select a contact", "Choose at least one emergency contact to alert, or add one below.");
+      return;
+    }
+    if (templateId === "custom" && !customMessage.trim()) {
+      Alert.alert("Write a message", "Enter what you'd like your contacts to see, or pick one of the templates.");
       return;
     }
     setTriggering(true);
@@ -112,21 +135,24 @@ export default function SafetyScreen() {
       const loc = await getLocation();
       if (!loc) return;
 
+      const messageBody = resolvedMessage();
       const alert = await triggerSOS({
-        shareScope,
+        shareScope: "emergency_only",
         lat: loc.lat,
         lng: loc.lng,
-        consentGiven: shareScope === "public",
+        messageTemplate: templateId,
+        messageBody,
+        contactsNotified: toAlert.length,
       });
       setActiveAlert(alert);
-      setShowConsent(false);
-      setConsentChecked(false);
+      setShowOptions(false);
 
-      // Pre-fill a text to each emergency contact with a maps link. There's
-      // no SMS gateway here, so this opens the native composer — the
-      // person still has to hit send.
-      for (const c of contacts) {
-        await alertEmergencyContact(c.phone, loc.lat, loc.lng);
+      // Pre-fill a text to each selected emergency contact with the chosen
+      // message + a maps link. There's no SMS gateway here, so this opens
+      // the native composer (WhatsApp first, SMS fallback) — the person
+      // still has to hit send for each.
+      for (const c of toAlert) {
+        await alertEmergencyContact(c.phone, loc.lat, loc.lng, messageBody);
       }
     } catch (e: any) {
       Alert.alert("Couldn't send alert", e?.message ?? "Please try again.");
@@ -172,11 +198,7 @@ export default function SafetyScreen() {
               <Ionicons name="alert-circle" size={20} color={COLORS.red} />
               <Text style={styles.activeTitle}>SOS Active</Text>
             </View>
-            <Text style={styles.activeSub}>
-              {activeAlert.share_scope === "public"
-                ? "Your emergency contacts and nearby app users can see your location."
-                : "Your emergency contacts can see your location."}
-            </Text>
+            <Text style={styles.activeSub}>Your emergency contacts can see your location.</Text>
             <PrimaryButton
               label={resolving ? "..." : "I'm Safe Now"}
               onPress={handleResolve}
@@ -188,43 +210,81 @@ export default function SafetyScreen() {
             <Text style={styles.kicker}>SOS</Text>
             <Text style={styles.sub}>
               Available any time, but especially useful mid-trip if something feels wrong.
+              Only your own emergency contacts are ever notified — nobody else on the app sees this.
             </Text>
             <PrimaryButton
               label={triggering ? "Sending..." : "Alert Emergency Contacts"}
-              onPress={() => handleTrigger("emergency_only")}
+              onPress={handleTrigger}
               disabled={triggering}
               danger
             />
             <Pressable
-              onPress={() => setShowConsent((v) => !v)}
+              onPress={() => setShowOptions((v) => !v)}
               style={styles.publicToggle}
             >
-              <Ionicons name="people-outline" size={15} color={COLORS.textDim} />
-              <Text style={styles.publicToggleTxt}>Also alert people nearby with the app</Text>
+              <Ionicons name="options-outline" size={15} color={COLORS.textDim} />
+              <Text style={styles.publicToggleTxt}>
+                {showOptions ? "Hide options" : "Choose message & who to notify"}
+              </Text>
             </Pressable>
 
-            {showConsent && (
+            {showOptions && (
               <View style={styles.consentBox}>
-                <Text style={styles.consentText}>{CONSENT_TEXT}</Text>
-                <Pressable
-                  style={styles.consentCheckRow}
-                  onPress={() => setConsentChecked((v) => !v)}
-                >
-                  <Ionicons
-                    name={consentChecked ? "checkbox" : "square-outline"}
-                    size={20}
-                    color={consentChecked ? COLORS.red : COLORS.textFaint}
+                <Text style={styles.optionsLabel}>Message</Text>
+                <View style={styles.templateRow}>
+                  {EMERGENCY_MESSAGE_TEMPLATES.map((t) => (
+                    <Pressable
+                      key={t.id}
+                      onPress={() => setTemplateId(t.id)}
+                      style={[styles.templateChip, templateId === t.id && styles.templateChipActive]}
+                    >
+                      <Text style={[styles.templateChipTxt, templateId === t.id && styles.templateChipTxtActive]}>
+                        {t.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  <Pressable
+                    onPress={() => setTemplateId("custom")}
+                    style={[styles.templateChip, templateId === "custom" && styles.templateChipActive]}
+                  >
+                    <Text style={[styles.templateChipTxt, templateId === "custom" && styles.templateChipTxtActive]}>
+                      Custom
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {templateId === "custom" ? (
+                  <TextField
+                    label="Custom message"
+                    placeholder="What should your contacts know?"
+                    value={customMessage}
+                    onChangeText={setCustomMessage}
                   />
-                  <Text style={styles.consentCheckTxt}>
-                    I understand and agree to share my location with nearby app users
+                ) : (
+                  <Text style={styles.templatePreview}>
+                    "{EMERGENCY_MESSAGE_TEMPLATES.find((t) => t.id === templateId)?.body}"
                   </Text>
-                </Pressable>
-                <PrimaryButton
-                  label={triggering ? "Sending..." : "Agree & Share Publicly"}
-                  onPress={() => handleTrigger("public")}
-                  disabled={!consentChecked || triggering}
-                  danger
-                />
+                )}
+
+                <Text style={[styles.optionsLabel, { marginTop: 6 }]}>Notify</Text>
+                {contacts.length === 0 ? (
+                  <Text style={styles.emptyTxt}>Add an emergency contact below first.</Text>
+                ) : (
+                  contacts.map((c) => (
+                    <Pressable
+                      key={c.id}
+                      style={styles.contactCheckRow}
+                      onPress={() => toggleContact(c.id)}
+                    >
+                      <Ionicons
+                        name={selectedContactIds.has(c.id) ? "checkbox" : "square-outline"}
+                        size={20}
+                        color={selectedContactIds.has(c.id) ? COLORS.red : COLORS.textFaint}
+                      />
+                      <Text style={styles.contactCheckTxt}>{c.name} — {c.phone}</Text>
+                    </Pressable>
+                  ))
+                )}
               </View>
             )}
           </GlassCard>
@@ -287,6 +347,20 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md, padding: 12,
   },
   consentText: { color: COLORS.textDim, fontSize: 12, lineHeight: 17 },
-  consentCheckRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  consentCheckTxt: { flex: 1, color: COLORS.text, fontSize: 12, fontWeight: "700" },
+  optionsLabel: {
+    color: COLORS.textFaint, fontSize: 11, letterSpacing: 1.5,
+    textTransform: "uppercase", fontWeight: "800",
+  },
+  templateRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  templateChip: {
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: RADIUS.md,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  templateChipActive: { backgroundColor: COLORS.red, borderColor: COLORS.red },
+  templateChipTxt: { color: COLORS.textDim, fontSize: 12, fontWeight: "700" },
+  templateChipTxtActive: { color: "#000" },
+  templatePreview: { color: COLORS.textDim, fontSize: 12, fontStyle: "italic", lineHeight: 17 },
+  contactCheckRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
+  contactCheckTxt: { flex: 1, color: COLORS.text, fontSize: 13, fontWeight: "700" },
 });

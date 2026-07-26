@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -12,7 +12,12 @@ import PrimaryButton from "../../src/components/PrimaryButton";
 import RoleCard from "../../src/components/RoleCard";
 import TermsModal from "../../src/components/TermsModal";
 import { COLORS, RADIUS, SPACE } from "../../src/theme/tokens";
-import { registerUser, loginUser, redirectAfterAuth } from "../../src/lib/auth";
+import {
+  registerUser, loginUser, redirectAfterAuth,
+  validateUsernameFormat, USERNAME_REQUIREMENTS, checkUsernameAvailable,
+} from "../../src/lib/auth";
+
+type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
 type Mode = "login" | "register";
 type Role = "rider" | "driver" | null;
@@ -27,6 +32,11 @@ export default function LoginScreen() {
   // shared
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+
+  // register - username live validation/availability
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
+  const [usernameMessage, setUsernameMessage] = useState<string | null>(null);
+  const usernameCheckToken = useRef(0);
 
   // register - account info
   const [confirm, setConfirm] = useState("");
@@ -49,6 +59,45 @@ export default function LoginScreen() {
   const isRegister = mode === "register";
   const isDriver = role === "driver";
 
+  // Real-time username validation — format check is instant, availability
+  // is debounced (network round trip). A token guards against a slower
+  // earlier check overwriting a newer one's result.
+  useEffect(() => {
+    if (!isRegister) return;
+    const trimmed = username.trim();
+    if (!trimmed) {
+      setUsernameStatus("idle");
+      setUsernameMessage(null);
+      return;
+    }
+
+    const formatError = validateUsernameFormat(trimmed);
+    if (formatError) {
+      setUsernameStatus("invalid");
+      setUsernameMessage(formatError);
+      return;
+    }
+
+    setUsernameStatus("checking");
+    setUsernameMessage(null);
+    const myToken = ++usernameCheckToken.current;
+
+    const t = setTimeout(async () => {
+      try {
+        const available = await checkUsernameAvailable(trimmed);
+        if (usernameCheckToken.current !== myToken) return; // a newer check superseded this one
+        setUsernameStatus(available ? "available" : "taken");
+        setUsernameMessage(available ? null : "That username is already taken.");
+      } catch {
+        if (usernameCheckToken.current !== myToken) return;
+        setUsernameStatus("idle");
+        setUsernameMessage(null);
+      }
+    }, 400);
+
+    return () => clearTimeout(t);
+  }, [username, isRegister]);
+
   const canContinue = useMemo(() => {
     if (!isRegister) {
       return !!username.trim() && !!password;
@@ -56,6 +105,7 @@ export default function LoginScreen() {
 
     // register validation
     if (!username.trim() || !password || !confirm) return false;
+    if (usernameStatus !== "available") return false;
     if (password !== confirm) return false;
     if (!firstName.trim() || !lastName.trim()) return false;
     if (!email.trim() || !cellphone.trim() || !dob) return false;
@@ -71,6 +121,7 @@ export default function LoginScreen() {
   }, [
     isRegister,
     username,
+    usernameStatus,
     password,
     confirm,
     firstName,
@@ -90,6 +141,8 @@ export default function LoginScreen() {
   const handleSwitchMode = (next: Mode) => {
     setMode(next);
     setSubmitError(null);
+    setUsernameStatus("idle");
+    setUsernameMessage(null);
   };
 
   const handleSubmit = async () => {
@@ -171,7 +224,38 @@ export default function LoginScreen() {
           </Text>
 
           <View style={{ gap: SPACE.sm, marginTop: SPACE.md }}>
-            <TextField label="Username" placeholder="admin@org.com" value={username} onChangeText={setUsername} />
+            <TextField
+              label="Username"
+              placeholder={isRegister ? "e.g. jane_m01" : "admin@org.com"}
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+            />
+            {isRegister && (
+              <View style={styles.usernameFeedbackRow}>
+                {usernameStatus === "checking" && (
+                  <>
+                    <ActivityIndicator size="small" color={COLORS.textFaint} />
+                    <Text style={styles.usernameFeedbackTxt}>Checking availability...</Text>
+                  </>
+                )}
+                {usernameStatus === "available" && (
+                  <>
+                    <Ionicons name="checkmark-circle" size={15} color="#3ddc84" />
+                    <Text style={[styles.usernameFeedbackTxt, { color: "#3ddc84" }]}>Username available</Text>
+                  </>
+                )}
+                {(usernameStatus === "taken" || usernameStatus === "invalid") && (
+                  <>
+                    <Ionicons name="close-circle" size={15} color={COLORS.red} />
+                    <Text style={[styles.usernameFeedbackTxt, { color: COLORS.red }]}>{usernameMessage}</Text>
+                  </>
+                )}
+                {usernameStatus === "idle" && (
+                  <Text style={styles.usernameHintTxt}>{USERNAME_REQUIREMENTS}</Text>
+                )}
+              </View>
+            )}
             <TextField
               label="Password"
               placeholder="••••••••"
@@ -179,6 +263,18 @@ export default function LoginScreen() {
               onChangeText={setPassword}
               secureTextEntry
             />
+
+            {!isRegister && (
+              <View style={styles.forgotRow}>
+                <Text style={styles.forgotLink} onPress={() => router.push("/auth/forgot-username")}>
+                  Forgot username?
+                </Text>
+                <Text style={styles.forgotDivider}>·</Text>
+                <Text style={styles.forgotLink} onPress={() => router.push("/auth/forgot-password")}>
+                  Forgot password?
+                </Text>
+              </View>
+            )}
 
             {isRegister && (
               <>
@@ -392,5 +488,38 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 14,
     fontWeight: "600",
+  },
+  usernameFeedbackRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: -4,
+    paddingHorizontal: 2,
+  },
+  usernameFeedbackTxt: {
+    color: COLORS.textDim,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  usernameHintTxt: {
+    color: COLORS.textFaint,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  forgotRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 2,
+  },
+  forgotLink: {
+    color: COLORS.red,
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  forgotDivider: {
+    color: COLORS.textFaint,
+    fontSize: 13,
   },
 });

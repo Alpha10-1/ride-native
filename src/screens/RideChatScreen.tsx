@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 
 import Screen from "../components/Screen";
@@ -8,7 +8,7 @@ import SideMenuDrawer from "../components/SideMenuDrawer";
 import ChatThread, { ChatBubble } from "../components/ChatThread";
 import { COLORS } from "../theme/tokens";
 import { getCurrentProfile } from "../lib/auth";
-import { getRideById, Ride } from "../lib/rides";
+import { getRideById, Ride, subscribeToRide } from "../lib/rides";
 import {
   RideMessage, getRideMessages, sendRideMessage, subscribeToRideMessages, getOtherPartyName,
 } from "../lib/chat";
@@ -23,6 +23,7 @@ export default function RideChatScreen() {
   const [messages, setMessages] = useState<RideMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const riderCancelHandledRef = useRef(false);
 
   useEffect(() => {
     if (!rideId) return;
@@ -52,15 +53,35 @@ export default function RideChatScreen() {
       }
     })();
 
-    const unsubscribe = subscribeToRideMessages(rideId, (m) => {
+    const unsubscribeMessages = subscribeToRideMessages(rideId, (m) => {
       setMessages((prev) => (prev.some((p) => p.id === m.id) ? prev : [...prev, m]));
+    });
+
+    // Keep `ride` live — without this, a cancellation while someone is
+    // actively chatting wouldn't be reflected until they left and re-opened
+    // the screen.
+    const unsubscribeRide = subscribeToRide(rideId, (updated) => {
+      setRide(updated);
     });
 
     return () => {
       cancelled = true;
-      unsubscribe();
+      unsubscribeMessages();
+      unsubscribeRide();
     };
   }, [rideId]);
+
+  // If the rider cancels while the driver is mid-conversation, don't leave
+  // them chatting about a dead trip — notify them and send them back to
+  // the dashboard, same as the active-trip screen does.
+  useEffect(() => {
+    if (role !== "driver" || !ride || riderCancelHandledRef.current) return;
+    if (ride.status === "cancelled" && ride.cancelled_by === "rider") {
+      riderCancelHandledRef.current = true;
+      router.replace("/(driver)/home");
+      Alert.alert("Ride Cancelled", "The rider has cancelled this trip.");
+    }
+  }, [role, ride?.status, ride?.cancelled_by]);
 
   const bubbles: ChatBubble[] = messages.map((m) => ({
     id: m.id,
