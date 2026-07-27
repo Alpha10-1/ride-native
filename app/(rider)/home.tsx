@@ -17,6 +17,7 @@ import DraggableSheet from "../../src/components/DraggableSheet";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
+import { useSOSTrigger } from "../../src/hooks/useSOSTrigger";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
 import { reverseGeocode } from "../../src/lib/geocoding";
@@ -29,6 +30,14 @@ import { updateMyLocation } from "../../src/lib/presence";
 import { haversineKm } from "../../src/lib/geo";
 
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY as string;
+if (!GOOGLE_MAPS_API_KEY) {
+  console.warn(
+    "[rider/home] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is missing or empty — " +
+    "address search and route drawing will silently fail. Check your .env " +
+    "file and restart Metro with `npx expo start --dev-client -c` (env " +
+    "vars are baked in at bundle time, a plain reload won't pick up changes)."
+  );
+}
 // Distinct from the app's red accent (used for pins/UI) so the route reads
 // clearly against the map background instead of blending into it.
 const ROUTE_LINE_COLOR = "#3B9EFF";
@@ -41,6 +50,7 @@ type SearchResult = { id: string; name: string; address: string; lat: number; ln
 const TIERS: RideTier[] = ["economy", "comfort", "xl"];
 
 export default function RiderHome() {
+  const { presentSOSPrompt } = useSOSTrigger({ role: "rider" });
   const [menuOpen, setMenuOpen] = useState(false);
   const mapRef = useRef<MapView>(null);
   const [step, setStep] = useState<Step>("sheet");
@@ -61,6 +71,9 @@ export default function RiderHome() {
   const [activeField, setActiveField] = useState<"pickup" | "destination">("destination");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  // The top live-search match, shown as a distinct pin on the map so the
+  // person can see exactly where their search is pointing before confirming.
+  const [previewPoint, setPreviewPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [searching, setSearching] = useState(false);
 
   // Pin state (when user drags map)
@@ -197,33 +210,62 @@ export default function RiderHome() {
     return () => { cancelled = true; };
   }, [pickup, destination, stops]);
 
-  // Live address search with debounce
+  // Live search with debounce. Uses Places Text Search rather than plain
+  // Geocoding — Geocoding only resolves addresses, so a query like "sandton
+  // city" (a mall, not an address) would come back empty. Places Text
+  // Search handles both business/POI names and addresses in one call, and
+  // supports a soft location bias so nearby results rank first.
   useEffect(() => {
-    if (!searchQuery.trim() || searchQuery.length < 3) { setSearchResults([]); return; }
+    if (!searchQuery.trim() || searchQuery.length < 3) { setSearchResults([]); setPreviewPoint(null); return; }
     const t = setTimeout(async () => {
       setSearching(true);
       try {
+        const bias = pickup ?? currentLocation ?? { lat: DEFAULT_CENTER[1], lng: DEFAULT_CENTER[0] };
         const params = new URLSearchParams({
-          address: searchQuery,
+          query: searchQuery,
           region: "za",
+          location: `${bias.lat},${bias.lng}`,
+          radius: "50000", // 50km soft bias, not a hard filter
           key: GOOGLE_MAPS_API_KEY,
         });
-        const url = `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`;
+        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`;
         const res = await fetch(url);
         const json = await res.json();
-        const results: SearchResult[] = (json.results ?? []).map((r: any) => ({
-          id: r.place_id,
-          name: (r.formatted_address ?? "").split(",")[0],
-          address: r.formatted_address ?? "",
-          lat: r.geometry?.location?.lat,
-          lng: r.geometry?.location?.lng,
-        }));
-        setSearchResults(results);
-        // Preview first result on map
-        if (results[0]) {
-          flyTo(mapRef, results[0].lng, results[0].lat, 14, 400);
+
+        if (json.status && json.status !== "OK" && json.status !== "ZERO_RESULTS") {
+          console.error(
+            `[rider/home] Places Text Search returned ${json.status}` +
+            (json.error_message ? `: ${json.error_message}` : "")
+          );
+          setSearchResults([]);
+          setPreviewPoint(null);
+          return;
         }
-      } catch { setSearchResults([]); }
+
+        const results: SearchResult[] = (json.results ?? [])
+          .filter((r: any) => r.geometry?.location)
+          .map((r: any) => ({
+            id: r.place_id,
+            name: r.name ?? (r.formatted_address ?? "").split(",")[0],
+            address: r.formatted_address ?? r.vicinity ?? "",
+            lat: r.geometry.location.lat,
+            lng: r.geometry.location.lng,
+          }));
+        setSearchResults(results);
+
+        // Show + fly to the top match so the person can see exactly where
+        // their search is pointing before they confirm it.
+        if (results[0]) {
+          setPreviewPoint({ lat: results[0].lat, lng: results[0].lng });
+          flyTo(mapRef, results[0].lng, results[0].lat, 14, 400);
+        } else {
+          setPreviewPoint(null);
+        }
+      } catch (e) {
+        console.error("[rider/home] Places search request failed:", e);
+        setSearchResults([]);
+        setPreviewPoint(null);
+      }
       finally { setSearching(false); }
     }, 350);
     return () => clearTimeout(t);
@@ -245,6 +287,7 @@ export default function RiderHome() {
     setEstimatedDuration(null);
     setSearchQuery("");
     setSearchResults([]);
+    setPreviewPoint(null);
     setPinCoords(null);
     setError(null);
     setStep("sheet");
@@ -260,6 +303,7 @@ export default function RiderHome() {
     else { setDestination(point); setSearchQuery(""); setSearchResults([]); if (pickup) setStep("tiers"); else { setStep("input_pickup"); setActiveField("pickup"); } }
     setSearchQuery("");
     setSearchResults([]);
+    setPreviewPoint(null);
   };
 
   // forceField lets sheet quick-chips always set destination regardless of activeField
@@ -435,6 +479,20 @@ export default function RiderHome() {
             </Marker>
           )}
 
+          {/* Live-search preview — the top match, shown distinctly from a
+              confirmed pickup/destination pin so it's clear this is just a
+              preview until the person actually taps a suggestion. */}
+          {previewPoint && (step === "input_pickup" || step === "input_destination") && (
+            <Marker
+              coordinate={{ latitude: previewPoint.lat, longitude: previewPoint.lng }}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <View style={styles.markerPreview}>
+                <Ionicons name="location" size={26} color="#3B9EFF" />
+              </View>
+            </Marker>
+          )}
+
           {/* Route line — dark casing underneath for contrast on any map
               background, colored line on top. Two overlapping Polylines
               since react-native-maps has no single "line + casing" style. */}
@@ -491,6 +549,7 @@ export default function RiderHome() {
               setSheetTab(tab as any);
               if (tab === "home") handleHomeTab();
               else if (tab === "work") handleWorkTab();
+              else if (tab === "safety") presentSOSPrompt();
             }}
           >
             <View style={{ gap: SPACE.sm }}>
@@ -537,8 +596,12 @@ export default function RiderHome() {
         )}
 
         {/* ── INPUT STEP (search + suggestions) ── */}
+        {/* Draggable so it can be collapsed down to peek at the map while
+            searching — scrollable=false since the suggestions FlatList
+            below already handles its own scrolling. */}
         {(step === "input_pickup" || step === "input_destination") && (
-          <View style={styles.inputPanel}>
+          <DraggableSheet topGap={140} peekHeight={130} defaultExpanded scrollable={false}>
+            <View style={{ gap: SPACE.sm, flex: 1 }}>
             {step === "input_destination" ? (
               <Text style={styles.inputStepTitle}>{addingStop ? "Add a stop" : "Where to?"}</Text>
             ) : (
@@ -615,6 +678,7 @@ export default function RiderHome() {
                   setAddingStop(false);
                   setSearchQuery("");
                   setSearchResults([]);
+                  setPreviewPoint(null);
                   setStep("tiers");
                 } else {
                   resetBookingFlow();
@@ -624,7 +688,8 @@ export default function RiderHome() {
             >
               <Text style={styles.cancelTxt}>Cancel</Text>
             </Pressable>
-          </View>
+            </View>
+          </DraggableSheet>
         )}
 
         {/* ── TIER SELECTION ── */}
@@ -785,6 +850,7 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: "#000",
   },
   markerDest: { alignItems: "center" },
+  markerPreview: { alignItems: "center", opacity: 0.9 },
   markerStop: {
     width: 22, height: 22, borderRadius: 11,
     backgroundColor: COLORS.red, alignItems: "center", justifyContent: "center",
@@ -835,12 +901,6 @@ const styles = StyleSheet.create({
   quickChipTxt: { color: COLORS.text, fontWeight: "700", fontSize: 13 },
 
   // Input panel
-  inputPanel: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    backgroundColor: "#070707",
-    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)",
-    padding: SPACE.md, paddingBottom: SPACE.xl, gap: SPACE.sm,
-  },
   inputStepTitle: { color: COLORS.text, fontWeight: "900", fontSize: 20 },
   pickupContext: {
     flexDirection: "row", alignItems: "center", gap: 8,
