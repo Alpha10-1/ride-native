@@ -2,7 +2,7 @@
 import React from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import Screen from "../components/Screen";
-import AppHeader from "../components/AppHeader";
+import RiderHeader from "../components/RiderHeader";
 import GlassCard from "../components/GlassCard";
 import SettingRow from "../components/SettingRow";
 import { COLORS, SPACE } from "../theme/tokens";
@@ -60,7 +60,7 @@ export default function SettingsScreen({ navigation }: any) {
 
   return (
     <Screen>
-      <AppHeader eyebrow="Rider" title="Settings" />
+      <RiderHeader subtitle="Settings" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <GlassCard style={{ marginBottom: SPACE.md }}>

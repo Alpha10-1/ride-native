@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text } from "react-native";
 import { router } from "expo-router";
 import Screen from "../../src/components/Screen";
-import AppHeader from "../../src/components/AppHeader";
+import RiderHeader from "../../src/components/RiderHeader";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import { COLORS, SPACE } from "../../src/theme/tokens";
@@ -10,12 +10,7 @@ import { COLORS, SPACE } from "../../src/theme/tokens";
 export default function RiderTrip() {
   return (
     <Screen>
-      <AppHeader
-        eyebrow="Rider"
-        title="Finding driver"
-        left={<Text style={{ color: COLORS.text, fontWeight: "900" }}>←</Text>}
-        onLeftPress={() => router.back()}
-      />
+      <RiderHeader subtitle="Finding driver" onBack={() => router.back()} />
 
       <View style={{ padding: SPACE.md, gap: SPACE.md }}>
         <GlassCard>

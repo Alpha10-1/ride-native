@@ -8,6 +8,7 @@ export default function RiderHeader({
   subtitle = "Where to?",
   onMenu,
   menuOpen,
+  onBack,
   locationLabel,
   onPressLocation,
 }: {
@@ -15,14 +16,15 @@ export default function RiderHeader({
   subtitle?: string;
   onMenu?: () => void;
   menuOpen?: boolean; // ✅ if true, shows X instead of burger
+  onBack?: () => void; // ✅ if provided, shows a back arrow instead of the menu/close icon
   locationLabel?: string; // ✅ optional pill label (e.g. "Pretoria")
   onPressLocation?: () => void; // ✅ click to update location
 }) {
   return (
     <View style={styles.wrap}>
-      <Pressable onPress={onMenu} style={styles.iconBtn} hitSlop={10}>
+      <Pressable onPress={onBack ?? onMenu} style={styles.iconBtn} hitSlop={10}>
         <Ionicons
-          name={menuOpen ? "close" : "menu"}
+          name={onBack ? "arrow-back" : menuOpen ? "close" : "menu"}
           size={20}
           color={COLORS.text}
         />
