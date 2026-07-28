@@ -25,6 +25,7 @@ import { flyTo, fitToPoints, regionFromCenterZoom, toLatLngList } from "../../sr
 import {
   getRoute, requestRide, requestScheduledRide, formatFare, demandLabel,
   TIER_CONFIG, RideTier, getActiveRideForRider,
+  minRiderOfferCents, proposeRiderFare,
 } from "../../src/lib/rides";
 import { updateMyLocation } from "../../src/lib/presence";
 import { haversineKm } from "../../src/lib/geo";
@@ -93,6 +94,11 @@ export default function RiderHome() {
   const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
   const [demandMultiplier] = useState(1.1);
   const [selectedTier, setSelectedTier] = useState<RideTier>("economy");
+  // Optional custom fare offer — set before tapping "Request Ride", so
+  // negotiation starts the moment the ride is created rather than
+  // requiring a separate step afterward.
+  const [showFareNegotiation, setShowFareNegotiation] = useState(false);
+  const [customFareInput, setCustomFareInput] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [routeRefining, setRouteRefining] = useState(false);
@@ -358,6 +364,8 @@ export default function RiderHome() {
     setSearchResults([]);
     setPreviewPoint(null);
     setPinCoords(null);
+    setShowFareNegotiation(false);
+    setCustomFareInput("");
     setError(null);
     setStep("sheet");
   };
@@ -451,6 +459,20 @@ export default function RiderHome() {
       Alert.alert("Pick a time", "Choose a date and time for your scheduled ride.");
       return;
     }
+    let customFareCents: number | null = null;
+    if (showFareNegotiation && !scheduling) {
+      const parsed = Math.round(parseFloat(customFareInput) * 100);
+      if (isNaN(parsed) || parsed <= 0) {
+        Alert.alert("Enter an amount", "Please enter a valid fare offer, or tap the X to cancel it.");
+        return;
+      }
+      const min = minRiderOfferCents(tierFare(selectedTier));
+      if (parsed < min) {
+        Alert.alert("Offer too low", `Your offer can't be less than ${formatFare(min)} (50% of the estimated fare).`);
+        return;
+      }
+      customFareCents = parsed;
+    }
     setError(null);
     setStep("requesting");
     setRequesting(true);
@@ -481,6 +503,19 @@ export default function RiderHome() {
       }
 
       const ride = await requestRide(commonParams);
+
+      // If a custom fare was set before requesting, send it the moment the
+      // ride exists — best-effort: if this fails, the rider can still
+      // propose a fare from the tracking screen, so it shouldn't block
+      // getting there.
+      if (customFareCents) {
+        try {
+          await proposeRiderFare(ride.id, customFareCents);
+        } catch (e: any) {
+          console.warn("[rider/home] Couldn't set initial fare offer:", e?.message ?? e);
+        }
+      }
+
       router.replace({ pathname: "/(rider)/ride-tracking", params: { rideId: ride.id } });
     } catch (e: any) {
       // If this failed because we already have an active ride (e.g. a race
@@ -499,7 +534,6 @@ export default function RiderHome() {
     }
   };
 
-  const home = savedPlaces.find((p) => p.kind === "home");
   const work = savedPlaces.find((p) => p.kind === "work");
   const customs = savedPlaces.filter((p) => p.kind === "custom");
 
@@ -632,15 +666,9 @@ export default function RiderHome() {
               </Pressable>
 
               {/* Quick access saved places */}
-              {(home || work || customs.length > 0) && (
+              {(work || customs.length > 0) && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}>
                   <View style={styles.quickRow}>
-                    {home && (
-                      <Pressable style={styles.quickChip} onPress={() => confirmSavedPlace(home)}>
-                        <Ionicons name="home-outline" size={15} color={COLORS.red} />
-                        <Text style={styles.quickChipTxt}>Home</Text>
-                      </Pressable>
-                    )}
                     {work && (
                       <Pressable style={styles.quickChip} onPress={() => confirmSavedPlace(work)}>
                         <Ionicons name="briefcase-outline" size={15} color={COLORS.red} />
@@ -827,6 +855,37 @@ export default function RiderHome() {
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
+            {/* Propose a fare — before requesting. Hidden while scheduling
+                for later, since negotiation only applies to immediate
+                requests (a scheduled ride isn't broadcast to drivers yet). */}
+            {!scheduling && (
+              <View style={{ gap: 8 }}>
+                {showFareNegotiation ? (
+                  <View style={styles.offerInputRow}>
+                    <TextInput
+                      value={customFareInput}
+                      onChangeText={setCustomFareInput}
+                      placeholder={`Your price (min ${formatFare(minRiderOfferCents(tierFare(selectedTier)))})`}
+                      placeholderTextColor={COLORS.textFaint}
+                      keyboardType="decimal-pad"
+                      style={styles.offerInput}
+                      autoFocus
+                    />
+                    <Pressable
+                      style={styles.cancelBtn}
+                      onPress={() => { setShowFareNegotiation(false); setCustomFareInput(""); }}
+                    >
+                      <Ionicons name="close" size={18} color={COLORS.textFaint} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable onPress={() => setShowFareNegotiation(true)}>
+                    <Text style={styles.makeOfferLink}>Propose a different fare</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
             {/* Schedule for later */}
             <Pressable
               style={styles.scheduleToggle}
@@ -837,6 +896,8 @@ export default function RiderHome() {
                 } else {
                   setScheduling(true);
                   setShowSchedDate(true);
+                  setShowFareNegotiation(false);
+                  setCustomFareInput("");
                 }
               }}
             >
@@ -1009,6 +1070,14 @@ const styles = StyleSheet.create({
 
   // Cancel
   cancelBtn: { alignItems: "center", paddingVertical: 8 },
+  offerInputRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  offerInput: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: RADIUS.lg,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.05)",
+    paddingHorizontal: 14, paddingVertical: 10,
+    color: COLORS.text, fontSize: 14,
+  },
+  makeOfferLink: { color: COLORS.red, fontWeight: "800", fontSize: 13, textAlign: "center" },
   cancelTxt: { color: COLORS.red, fontWeight: "700", fontSize: 14 },
 
   // Tier panel
