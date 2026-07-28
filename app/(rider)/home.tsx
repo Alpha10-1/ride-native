@@ -43,6 +43,13 @@ if (!GOOGLE_MAPS_API_KEY) {
 const ROUTE_LINE_COLOR = "#3B9EFF";
 const DEFAULT_CENTER: [number, number] = [28.0473, -26.2041];
 
+// Once Places API (New) fails once (auth/config issue on the Google Cloud
+// side), stop retrying it on every keystroke for the rest of this app
+// session — go straight to the Geocoding fallback instead. Avoids spamming
+// the console and firing a doomed network request on every character
+// typed. Resets on next app launch in case the config gets fixed meanwhile.
+let placesApiConfirmedBlocked = false;
+
 type Step = "sheet" | "input_pickup" | "input_destination" | "pin" | "tiers" | "requesting";
 type LocationPoint = { label: string; address: string; lat: number; lng: number };
 type SearchResult = { id: string; name: string; address: string; lat: number; lng: number };
@@ -210,61 +217,123 @@ export default function RiderHome() {
     return () => { cancelled = true; };
   }, [pickup, destination, stops]);
 
-  // Live search with debounce. Uses Places Text Search rather than plain
-  // Geocoding — Geocoding only resolves addresses, so a query like "sandton
-  // city" (a mall, not an address) would come back empty. Places Text
-  // Search handles both business/POI names and addresses in one call, and
-  // supports a soft location bias so nearby results rank first.
+  // Live search with debounce. Tries Places Text Search (New) first (handles
+  // business/POI names, not just addresses) and automatically falls back to
+  // plain Geocoding — which was already confirmed working — if Places (New)
+  // errors for any reason. This way address search never regresses to zero
+  // results while Places (New) auth gets sorted out on the Google Cloud side.
   useEffect(() => {
     if (!searchQuery.trim() || searchQuery.length < 3) { setSearchResults([]); setPreviewPoint(null); return; }
+
+    const applyResults = (results: SearchResult[]) => {
+      setSearchResults(results);
+      if (results[0]) {
+        setPreviewPoint({ lat: results[0].lat, lng: results[0].lng });
+        flyTo(mapRef, results[0].lng, results[0].lat, 14, 400);
+      } else {
+        setPreviewPoint(null);
+      }
+    };
+
+    const searchViaGeocoding = async (query: string): Promise<SearchResult[]> => {
+      const params = new URLSearchParams({ address: query, region: "za", key: GOOGLE_MAPS_API_KEY });
+      const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`);
+      const json = await res.json();
+      if (json.status && json.status !== "OK" && json.status !== "ZERO_RESULTS") {
+        console.error(
+          `[rider/home] Geocoding fallback returned ${json.status}` +
+          (json.error_message ? `: ${json.error_message}` : "")
+        );
+        return [];
+      }
+      return (json.results ?? [])
+        .filter((r: any) => r.geometry?.location)
+        .map((r: any) => ({
+          id: r.place_id,
+          name: (r.formatted_address ?? "").split(",")[0],
+          address: r.formatted_address ?? "",
+          lat: r.geometry.location.lat,
+          lng: r.geometry.location.lng,
+        }));
+    };
+
     const t = setTimeout(async () => {
       setSearching(true);
-      try {
-        const bias = pickup ?? currentLocation ?? { lat: DEFAULT_CENTER[1], lng: DEFAULT_CENTER[0] };
-        const params = new URLSearchParams({
-          query: searchQuery,
-          region: "za",
-          location: `${bias.lat},${bias.lng}`,
-          radius: "50000", // 50km soft bias, not a hard filter
-          key: GOOGLE_MAPS_API_KEY,
-        });
-        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`;
-        const res = await fetch(url);
-        const json = await res.json();
 
-        if (json.status && json.status !== "OK" && json.status !== "ZERO_RESULTS") {
-          console.error(
-            `[rider/home] Places Text Search returned ${json.status}` +
-            (json.error_message ? `: ${json.error_message}` : "")
-          );
+      // Already confirmed blocked this session — skip straight to the
+      // fallback instead of firing another doomed request + error log.
+      if (placesApiConfirmedBlocked) {
+        try {
+          applyResults(await searchViaGeocoding(searchQuery));
+        } catch (e) {
+          console.error("[rider/home] Geocoding request failed:", e);
           setSearchResults([]);
           setPreviewPoint(null);
+        } finally {
+          setSearching(false);
+        }
+        return;
+      }
+
+      try {
+        const bias = pickup ?? currentLocation ?? { lat: DEFAULT_CENTER[1], lng: DEFAULT_CENTER[0] };
+        const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+            "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location",
+          },
+          body: JSON.stringify({
+            textQuery: searchQuery,
+            regionCode: "ZA",
+            locationBias: {
+              circle: {
+                center: { latitude: bias.lat, longitude: bias.lng },
+                radius: 50000.0, // 50km soft bias, not a hard filter
+              },
+            },
+          }),
+        });
+        const json = await res.json();
+
+        if (json.error) {
+          placesApiConfirmedBlocked = true;
+          console.warn(
+            `[rider/home] Places Text Search (New) unavailable (${json.error.status ?? res.status}` +
+            (json.error.message ? `: ${json.error.message}` : "") +
+            ") — using Geocoding for the rest of this session (addresses only, no business names)."
+          );
+          try {
+            const fallbackResults = await searchViaGeocoding(searchQuery);
+            applyResults(fallbackResults);
+          } catch (fallbackErr) {
+            console.error("[rider/home] Geocoding fallback request itself threw:", fallbackErr);
+            setSearchResults([]);
+            setPreviewPoint(null);
+          }
           return;
         }
 
-        const results: SearchResult[] = (json.results ?? [])
-          .filter((r: any) => r.geometry?.location)
-          .map((r: any) => ({
-            id: r.place_id,
-            name: r.name ?? (r.formatted_address ?? "").split(",")[0],
-            address: r.formatted_address ?? r.vicinity ?? "",
-            lat: r.geometry.location.lat,
-            lng: r.geometry.location.lng,
+        const results: SearchResult[] = (json.places ?? [])
+          .filter((p: any) => p.location)
+          .map((p: any) => ({
+            id: p.id,
+            name: p.displayName?.text ?? (p.formattedAddress ?? "").split(",")[0],
+            address: p.formattedAddress ?? "",
+            lat: p.location.latitude,
+            lng: p.location.longitude,
           }));
-        setSearchResults(results);
-
-        // Show + fly to the top match so the person can see exactly where
-        // their search is pointing before they confirm it.
-        if (results[0]) {
-          setPreviewPoint({ lat: results[0].lat, lng: results[0].lng });
-          flyTo(mapRef, results[0].lng, results[0].lat, 14, 400);
-        } else {
+        applyResults(results);
+      } catch (e) {
+        console.error("[rider/home] Places search request failed, falling back to Geocoding:", e);
+        try {
+          applyResults(await searchViaGeocoding(searchQuery));
+        } catch (e2) {
+          console.error("[rider/home] Geocoding fallback also failed:", e2);
+          setSearchResults([]);
           setPreviewPoint(null);
         }
-      } catch (e) {
-        console.error("[rider/home] Places search request failed:", e);
-        setSearchResults([]);
-        setPreviewPoint(null);
       }
       finally { setSearching(false); }
     }, 350);

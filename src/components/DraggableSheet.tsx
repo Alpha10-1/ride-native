@@ -82,15 +82,24 @@ export default function DraggableSheet({
           <View style={styles.grabber} />
         </Pressable>
       </View>
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={scrollable}
-        bounces={scrollable}
-      >
-        {children}
-      </ScrollView>
+      {scrollable ? (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {children}
+        </ScrollView>
+      ) : (
+        // No ScrollView wrapper at all when content manages its own
+        // scrolling (e.g. a FlatList of search suggestions) — wrapping a
+        // VirtualizedList in a ScrollView triggers React Native's nested-
+        // list warning/breakage even with scrollEnabled={false}, since the
+        // check is based on the component tree, not runtime scroll state.
+        <View style={[styles.content, styles.scrollContent, { flex: 1 }]}>
+          {children}
+        </View>
+      )}
     </Animated.View>
   );
 }
