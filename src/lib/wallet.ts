@@ -47,13 +47,36 @@ export async function getWalletTransactions(limit = 20): Promise<WalletTransacti
   return data ?? [];
 }
 
-// Stub top-up: simulates a successful payment without a real payment provider.
-export async function stubTopUp(amountCents: number): Promise<Wallet> {
-  const { data, error } = await supabase.rpc("stub_topup_wallet", {
-    amount_cents_in: amountCents,
+// Starts a real-money wallet top-up. Returns a Paystack hosted checkout
+// URL — open it with expo-web-browser. The wallet balance only actually
+// increases once paystack-webhook confirms the charge server-side; the
+// app should refetch the wallet after the browser closes rather than
+// assuming success.
+export async function startWalletTopUp(
+  amountCents: number
+): Promise<{ authorizationUrl: string; reference: string; amountCents: number }> {
+  const { data, error } = await supabase.functions.invoke("paystack-initialize-topup", {
+    body: { amount_cents: amountCents },
   });
-  if (error) throw error;
-  return data as Wallet;
+  if (error) {
+    // supabase-js's default error for a non-2xx response has no detail —
+    // the real reason is in the response body, so pull it out instead.
+    let detail = error.message;
+    try {
+      const body = await error.context?.json();
+      if (body?.error) detail = body.error;
+    } catch {
+      // context wasn't JSON (e.g. the function isn't deployed) — fall
+      // back to the generic message above.
+    }
+    throw new Error(detail);
+  }
+  if (data?.error) throw new Error(data.error);
+  return {
+    authorizationUrl: data.authorization_url,
+    reference: data.reference,
+    amountCents: data.amount_cents,
+  };
 }
 
 // Stub earning: simulates a completed-ride payout for drivers.

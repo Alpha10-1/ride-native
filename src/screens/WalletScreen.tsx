@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 
 import Screen from "../components/Screen";
 import RiderHeader from "../components/RiderHeader";
@@ -13,7 +14,7 @@ import { getCurrentProfile } from "../lib/auth";
 import {
   getWallet,
   getWalletTransactions,
-  stubTopUp,
+  startWalletTopUp,
   stubAddEarning,
   formatCents,
   Wallet,
@@ -63,12 +64,16 @@ export default function WalletScreen() {
     setError(null);
     setActionLoading(true);
     try {
-      const updated = await stubTopUp(amountCents);
-      setWallet(updated);
-      const tx = await getWalletTransactions(15);
-      setTransactions(tx);
+      const { authorizationUrl } = await startWalletTopUp(amountCents);
+      const result = await WebBrowser.openAuthSessionAsync(authorizationUrl);
+      // We don't trust the browser result for crediting the wallet — the
+      // webhook is the source of truth — but once the browser closes,
+      // refresh so an already-processed webhook shows up right away.
+      if (result.type === "success" || result.type === "cancel" || result.type === "dismiss") {
+        await load();
+      }
     } catch (e: any) {
-      setError(e?.message ?? "Top-up failed.");
+      setError(e?.message ?? "Couldn't start checkout.");
     } finally {
       setActionLoading(false);
     }
@@ -124,7 +129,7 @@ export default function WalletScreen() {
               {TOPUP_AMOUNTS_CENTS.map((amount) => (
                 <View key={amount} style={styles.amountBtnWrap}>
                   <PrimaryButton
-                    label={formatCents(amount)}
+                    label={actionLoading ? "Opening checkout…" : formatCents(amount)}
                     onPress={() => handleTopUp(amount)}
                     disabled={actionLoading}
                   />
@@ -132,7 +137,7 @@ export default function WalletScreen() {
               ))}
             </View>
             <Text style={styles.note}>
-              This is a simulated top-up for development. No real payment is processed yet.
+              Top up by card via Paystack. Your balance updates once the payment is confirmed.
             </Text>
           </>
         ) : (

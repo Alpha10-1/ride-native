@@ -54,6 +54,9 @@ export type Ride = {
   completed_at: string | null;
   cancelled_at: string | null;
   cancelled_by: "rider" | "driver" | null;
+  payment_method: "wallet" | "card" | "cash";
+  payment_status: "unpaid" | "pending" | "paid" | "failed";
+  payment_reference: string | null;
 };
 
 export type RouteResult = {

@@ -1,10 +1,16 @@
 // Supabase Edge Function: paystack-webhook
 //
 // Paystack calls this directly (no Supabase auth involved) whenever a
-// payment event happens — most importantly charge.success, for both the
+// payment event happens — most importantly charge.success, for the
 // driver's first checkout (paystack-initialize-subscription) and every
-// automatic recurring charge (paystack-charge-recurring). This is the
-// single source of truth that actually activates/renews a subscription;
+// automatic recurring charge (paystack-charge-recurring), as well as the
+// rider-side flows added later: wallet top-ups
+// (paystack-initialize-topup) and card ride payments made via a fresh
+// checkout (paystack-initialize-ride-checkout — ride payments charged
+// via a saved card go through paystack-charge-ride-card instead, which
+// gets a synchronous response and doesn't strictly need this webhook,
+// though it's idempotent if it arrives anyway). This is the single
+// source of truth that actually activates/credits/settles any of these;
 // the client never gets to claim "I paid" on its own.
 //
 // Security: Paystack signs every webhook request with an HMAC-SHA512 of
@@ -59,14 +65,23 @@ Deno.serve(async (req: Request) => {
 
     if (event.event === "charge.success") {
       const data = event.data;
+      const purpose = data.metadata?.purpose as string | undefined;
+
+      if (purpose === "wallet_topup") {
+        return await handleWalletTopupSuccess(adminClient, data);
+      }
+      if (purpose === "ride_card_payment") {
+        return await handleRideCardPaymentSuccess(adminClient, data);
+      }
+
       const reference = data.reference as string;
       const driverId = data.metadata?.driver_id as string | undefined;
 
       // Only handle payments this system created (driver_subscription
       // purpose) — ignore anything else that might hit the same webhook
       // URL if it's ever reused for other Paystack products later.
-      if (!driverId || data.metadata?.purpose !== "driver_subscription") {
-        return new Response(JSON.stringify({ skipped: "not a subscription payment" }), { status: 200 });
+      if (!driverId || purpose !== "driver_subscription") {
+        return new Response(JSON.stringify({ skipped: "not a recognized payment purpose" }), { status: 200 });
       }
 
       const { data: paymentRow, error: paymentFetchError } = await adminClient
@@ -131,9 +146,38 @@ Deno.serve(async (req: Request) => {
     if (event.event === "charge.failed") {
       const data = event.data;
       const reference = data.reference as string;
+      const purpose = data.metadata?.purpose as string | undefined;
+      const reason = data.gateway_response ?? "Payment failed.";
+
+      if (purpose === "wallet_topup") {
+        await adminClient
+          .from("wallet_topup_payments")
+          .update({ status: "failed", failure_reason: reason })
+          .eq("paystack_reference", reference)
+          .eq("status", "pending");
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+
+      if (purpose === "ride_card_payment") {
+        await adminClient
+          .from("ride_payments")
+          .update({ status: "failed", failure_reason: reason })
+          .eq("paystack_reference", reference)
+          .eq("status", "pending");
+        const rideId = data.metadata?.ride_id as string | undefined;
+        if (rideId) {
+          await adminClient
+            .from("rides")
+            .update({ payment_status: "failed" })
+            .eq("id", rideId)
+            .eq("payment_reference", reference);
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+
       await adminClient
         .from("driver_subscription_payments")
-        .update({ status: "failed", failure_reason: data.gateway_response ?? "Payment failed." })
+        .update({ status: "failed", failure_reason: reason })
         .eq("paystack_reference", reference)
         .eq("status", "pending");
       // Subscription status transitions for failed *recurring* charges are
@@ -150,3 +194,124 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
   }
 });
+
+// Credits a rider's wallet after a real-money top-up succeeds. Uses the
+// credit_wallet_topup() RPC (service-role only) so the balance update and
+// the wallet_transactions row happen atomically under a row lock, instead
+// of two separate admin-client calls racing against a second concurrent
+// top-up for the same rider.
+async function handleWalletTopupSuccess(adminClient: any, data: any): Promise<Response> {
+  const reference = data.reference as string;
+  const riderId = data.metadata?.rider_id as string | undefined;
+  if (!riderId) {
+    return new Response(JSON.stringify({ skipped: "wallet_topup event missing rider_id" }), { status: 200 });
+  }
+
+  const { data: paymentRow, error: fetchError } = await adminClient
+    .from("wallet_topup_payments")
+    .select("*")
+    .eq("paystack_reference", reference)
+    .maybeSingle();
+
+  if (fetchError) {
+    return new Response(JSON.stringify({ error: fetchError.message }), { status: 500 });
+  }
+
+  // Idempotency: Paystack can and does retry webhook delivery.
+  if (paymentRow?.status === "success") {
+    return new Response(JSON.stringify({ ok: true, already_processed: true }), { status: 200 });
+  }
+
+  const amountCents = paymentRow?.amount_cents ?? data.amount;
+
+  const { error: creditError } = await adminClient.rpc("credit_wallet_topup", {
+    rider_id_in: riderId,
+    amount_cents_in: amountCents,
+    description_in: "Wallet top-up",
+  });
+  if (creditError) {
+    console.error("paystack-webhook: credit_wallet_topup failed", creditError);
+    return new Response(JSON.stringify({ error: creditError.message }), { status: 500 });
+  }
+
+  await adminClient
+    .from("wallet_topup_payments")
+    .update({
+      status: "success",
+      paystack_transaction_id: String(data.id),
+      paid_at: new Date().toISOString(),
+    })
+    .eq("paystack_reference", reference);
+
+  return new Response(JSON.stringify({ ok: true }), { status: 200 });
+}
+
+// Marks a ride paid after a rider completes a fresh Paystack checkout for
+// the fare (paystack-initialize-ride-checkout — used when they had no
+// saved card yet). Also saves the card as their new default for future
+// one-tap ride charges, mirroring how driver_subscriptions saves a card
+// from checkout for recurring billing.
+async function handleRideCardPaymentSuccess(adminClient: any, data: any): Promise<Response> {
+  const reference = data.reference as string;
+  const rideId = data.metadata?.ride_id as string | undefined;
+  const riderId = data.metadata?.rider_id as string | undefined;
+  if (!rideId || !riderId) {
+    return new Response(JSON.stringify({ skipped: "ride_card_payment event missing ride_id/rider_id" }), { status: 200 });
+  }
+
+  const { data: paymentRow, error: fetchError } = await adminClient
+    .from("ride_payments")
+    .select("*")
+    .eq("paystack_reference", reference)
+    .maybeSingle();
+
+  if (fetchError) {
+    return new Response(JSON.stringify({ error: fetchError.message }), { status: 500 });
+  }
+
+  if (paymentRow?.status === "success") {
+    return new Response(JSON.stringify({ ok: true, already_processed: true }), { status: 200 });
+  }
+
+  await adminClient
+    .from("ride_payments")
+    .update({
+      status: "success",
+      paystack_transaction_id: String(data.id),
+      paid_at: new Date().toISOString(),
+    })
+    .eq("paystack_reference", reference);
+
+  await adminClient
+    .from("rides")
+    .update({ payment_status: "paid" })
+    .eq("id", rideId)
+    .eq("payment_reference", reference);
+
+  const authorization = data.authorization ?? {};
+  if (authorization.authorization_code && authorization.reusable) {
+    // Only one default card per rider — unset any previous default
+    // before inserting/promoting this one, so
+    // paystack-charge-ride-card's "is_default = true" lookup stays
+    // unambiguous.
+    await adminClient
+      .from("rider_cards")
+      .update({ is_default: false })
+      .eq("rider_id", riderId);
+
+    await adminClient.from("rider_cards").upsert(
+      {
+        rider_id: riderId,
+        paystack_authorization_code: authorization.authorization_code,
+        card_last4: authorization.last4 ?? null,
+        card_brand: authorization.card_type ?? authorization.brand ?? null,
+        card_exp_month: authorization.exp_month ?? null,
+        card_exp_year: authorization.exp_year ?? null,
+        is_default: true,
+      },
+      { onConflict: "rider_id,paystack_authorization_code" }
+    );
+  }
+
+  return new Response(JSON.stringify({ ok: true }), { status: 200 });
+}

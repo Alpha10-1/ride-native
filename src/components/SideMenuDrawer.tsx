@@ -191,6 +191,18 @@ export default function SideMenuDrawer({
             }}
           />
 
+          {!isDriver && (
+            <RowItem
+              title="Payment Methods"
+              subtitle="Wallet, card, or cash"
+              icon="card-outline"
+              onPress={() => {
+                onClose();
+                router.push("/(rider)/payment-methods");
+              }}
+            />
+          )}
+
           <RowItem
             title="Settings"
             subtitle="Account, safety, preferences"
