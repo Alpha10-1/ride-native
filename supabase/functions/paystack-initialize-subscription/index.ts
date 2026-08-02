@@ -22,7 +22,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.109.0";
 
-const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY")!;
+const PAYSTACK_SECRET_KEY = (Deno.env.get("PAYSTACK_SECRET_KEY") ?? "").trim();
 
 Deno.serve(async (req: Request) => {
   try {
@@ -117,27 +117,47 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: `payment insert failed: ${paymentInsertError.message}` }), { status: 500 });
     }
 
+    if (!PAYSTACK_SECRET_KEY) {
+      console.error("paystack-initialize-subscription: PAYSTACK_SECRET_KEY is empty/unset");
+      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500 });
+    }
+
     console.log(`paystack-initialize-subscription: calling Paystack, amount=${amountCents}, email=${email}, ref=${reference}`);
 
-    const paystackRes = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        amount: amountCents,
-        currency: "ZAR",
-        reference,
-        channels: ["card"],
-        metadata: {
-          driver_id: driverId,
-          billing_cycle_number: cycleCount,
-          purpose: "driver_subscription",
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000); // fail fast instead of hanging until the platform kills the function
+
+    let paystackRes: Response;
+    try {
+      paystackRes = await fetch("https://api.paystack.co/transaction/initialize", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+          "Content-Type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          email,
+          amount: amountCents,
+          currency: "ZAR",
+          reference,
+          channels: ["card"],
+          metadata: {
+            driver_id: driverId,
+            billing_cycle_number: cycleCount,
+            purpose: "driver_subscription",
+          },
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      console.error("paystack-initialize-subscription: fetch to Paystack failed or timed out", String(fetchErr));
+      return new Response(
+        JSON.stringify({ error: `Couldn't reach Paystack: ${String(fetchErr)}` }),
+        { status: 502 }
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const paystackData = await paystackRes.json();
     if (!paystackRes.ok || !paystackData.status) {

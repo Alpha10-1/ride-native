@@ -239,7 +239,7 @@ create trigger driver_subscriptions_touch_updated_at
 --        '0 6 * * *',  -- 06:00 UTC = 08:00 SAST, once a day
 --        $$
 --        select net.http_post(
---          url := 'https://<project-ref>.functions.supabase.co/paystack-charge-recurring',
+--          url := 'https://<project-ref>.supabase.co/functions/v1/paystack-charge-recurring',
 --          headers := jsonb_build_object(
 --            'Authorization', 'Bearer <the CRON_SECRET you set above>',
 --            'Content-Type', 'application/json'

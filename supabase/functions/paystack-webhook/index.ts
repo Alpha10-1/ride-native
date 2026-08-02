@@ -19,7 +19,7 @@
 //   supabase secrets set PAYSTACK_SECRET_KEY=sk_test_xxx
 // THEN, in the Paystack Dashboard → Settings → API Keys & Webhooks, set
 // the webhook URL to:
-//   https://<project-ref>.functions.supabase.co/paystack-webhook
+//   https://<project-ref>.supabase.co/functions/v1/paystack-webhook
 
 import { createClient } from "npm:@supabase/supabase-js@2.109.0";
 

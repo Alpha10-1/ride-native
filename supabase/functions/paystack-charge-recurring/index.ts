@@ -32,7 +32,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.109.0";
 
-const PAYSTACK_SECRET_KEY = Deno.env.get("PAYSTACK_SECRET_KEY")!;
+const PAYSTACK_SECRET_KEY = (Deno.env.get("PAYSTACK_SECRET_KEY") ?? "").trim();
 const CRON_SECRET = Deno.env.get("CRON_SECRET")!;
 
 function amountForCycle(cycleCount: number): number {
@@ -71,8 +71,10 @@ async function notifyDriver(adminClient: any, driverId: string, title: string, b
 }
 
 Deno.serve(async (req: Request) => {
+  console.log("paystack-charge-recurring: invoked");
   const authHeader = req.headers.get("Authorization");
   if (authHeader !== `Bearer ${CRON_SECRET}`) {
+    console.error("paystack-charge-recurring: unauthorized (Authorization header didn't match CRON_SECRET)");
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -98,8 +100,11 @@ Deno.serve(async (req: Request) => {
 
   if (dueError) results.errors.push(dueError.message);
   if (pastDueError) results.errors.push(pastDueError.message);
+  if (dueError) console.error("paystack-charge-recurring: dueSubs query failed", dueError);
+  if (pastDueError) console.error("paystack-charge-recurring: pastDueSubs query failed", pastDueError);
 
   const toCharge = [...(dueSubs ?? []), ...(pastDueSubs ?? [])];
+  console.log(`paystack-charge-recurring: found ${dueSubs?.length ?? 0} due + ${pastDueSubs?.length ?? 0} past_due = ${toCharge.length} to process`);
 
   for (const sub of toCharge) {
     if (!sub.paystack_authorization_code) {
@@ -144,6 +149,7 @@ Deno.serve(async (req: Request) => {
       });
       const data = await res.json();
       const chargeStatus = data?.data?.status; // 'success' | 'failed' | ...
+      console.log(`paystack-charge-recurring: driver=${sub.driver_id} charge response status=${res.status} paystack_status=${chargeStatus}`);
 
       if (res.ok && data.status && chargeStatus === "success") {
         const periodStart = new Date();
@@ -212,6 +218,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  console.log("paystack-charge-recurring: done", JSON.stringify(results));
   return new Response(JSON.stringify(results), {
     status: 200,
     headers: { "Content-Type": "application/json" },
