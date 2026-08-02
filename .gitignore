@@ -40,3 +40,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Load testing — never commit generated test accounts
+loadtest/riders.json
+loadtest/drivers.json

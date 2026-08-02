@@ -27,8 +27,9 @@ import {
 import { getEarningsSummary, EarningsSummary, formatCents } from "../../src/lib/wallet";
 import { getCurrentProfile } from "../../src/lib/auth";
 import { getMyVerificationStatus, VerificationStatus } from "../../src/lib/verification";
+import { getMySubscriptionGate, SubscriptionGate } from "../../src/lib/subscription";
 import { haversineKm, formatDistance, progressiveRadiusKm } from "../../src/lib/geo";
-import { useDriverOnline } from "../../src/lib/driverStatus";
+import { useDriverOnline, subscribeSubscriptionBlocked } from "../../src/lib/driverStatus";
 import { updateMyLocation } from "../../src/lib/presence";
 
 const MAX_SEARCH_RADIUS_KM = 1.6;
@@ -51,6 +52,7 @@ export default function DriverHome() {
   const [firstName, setFirstName] = useState("");
   const [vehicle, setVehicle] = useState<{ make: string; model: string; plate: string } | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>("unverified");
+  const [subscriptionGate, setSubscriptionGate] = useState<SubscriptionGate | null>(null);
   const [lastTrip, setLastTrip] = useState<Ride | null>(null);
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [coords, setCoords] = useState<[number, number] | null>(null); // [lng, lat]
@@ -75,6 +77,22 @@ export default function DriverHome() {
   const bannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { coordsRef.current = coords; }, [coords]);
+
+  // If the driver gets force-taken-offline mid-shift (subscription grace
+  // period expired, retry charge failed), explain why instead of just
+  // silently flipping the toggle back to Offline.
+  useEffect(() => {
+    return subscribeSubscriptionBlocked((reason) => {
+      Alert.alert(
+        "Taken offline",
+        reason,
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "View subscription", onPress: () => router.push("/(driver)/subscription") },
+        ]
+      );
+    });
+  }, []);
 
   // Redirect straight to an active trip (e.g. app was relaunched mid-ride),
   // and refresh profile/earnings every time this screen gains focus.
@@ -102,6 +120,9 @@ export default function DriverHome() {
       .catch(() => {});
     getMyVerificationStatus()
       .then((v) => { if (!cancelled) setVerificationStatus(v.status); })
+      .catch(() => {});
+    getMySubscriptionGate()
+      .then((g) => { if (!cancelled) setSubscriptionGate(g); })
       .catch(() => {});
     getEarningsSummary().then((s) => { if (!cancelled) setEarnings(s); }).catch(() => {});
     getRideHistory(1).then((h) => { if (!cancelled) setLastTrip(h[0] ?? null); }).catch(() => {});
@@ -293,6 +314,17 @@ export default function DriverHome() {
   };
 
   const handleToggleOnline = () => {
+    if (!online && subscriptionGate && !subscriptionGate.allowed) {
+      Alert.alert(
+        subscriptionGate.status === "past_due" ? "Payment failed" : "Subscription required",
+        subscriptionGate.reason ?? "Set up your driver subscription to go online.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "View subscription", onPress: () => router.push("/(driver)/subscription") },
+        ]
+      );
+      return;
+    }
     if (!online && verificationStatus !== "verified") {
       Alert.alert(
         verificationStatus === "pending" ? "Verification in review" : "Verification required",

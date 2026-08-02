@@ -41,6 +41,9 @@ export default function DriverSettings() {
         <RowItem icon="card-outline" title="Payout method" subtitle="Bank account" onPress={() => {}} />
         <RowItem icon="pricetag-outline" title="Promotions" subtitle="Driver bonuses" onPress={() => router.push("/(driver)/promotions")} />
 
+        <Text style={styles.section}>Billing</Text>
+        <RowItem icon="repeat-outline" title="Subscription" subtitle="Monthly platform fee & card" onPress={() => router.push("/(driver)/subscription")} />
+
         <Text style={styles.section}>Safety</Text>
         <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency, share trip" onPress={() => router.push("/(driver)/safety")} />
 
