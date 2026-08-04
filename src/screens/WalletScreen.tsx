@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
+import { resetTo } from "../lib/navigation";
 import * as WebBrowser from "expo-web-browser";
 
 import Screen from "../components/Screen";
@@ -38,7 +39,7 @@ export default function WalletScreen() {
     try {
       const profile = await getCurrentProfile();
       if (!profile) {
-        router.replace("/auth/login");
+        resetTo("/auth/login");
         return;
       }
       setRole(profile.role);

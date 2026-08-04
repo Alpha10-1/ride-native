@@ -8,15 +8,21 @@ import Screen from "../../src/components/Screen";
 import RiderHeader from "../../src/components/RiderHeader";
 import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import GlassCard from "../../src/components/GlassCard";
+import TextField from "../../src/components/TextField";
+import PrimaryButton from "../../src/components/PrimaryButton";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import {
   PaymentMethod,
   PAYMENT_METHOD_LABELS,
   RiderCard,
+  BankDetails,
   getPreferredPaymentMethod,
   setPreferredPaymentMethod,
   getMyCards,
   deleteCard,
+  getMyBankDetails,
+  updateBankDetails,
+  clearBankDetails,
 } from "../../src/lib/payments";
 import { startWalletTopUp } from "../../src/lib/wallet";
 
@@ -34,11 +40,28 @@ export default function PaymentMethodsScreen() {
   const [cards, setCards] = useState<RiderCard[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const [bankName, setBankName] = useState("");
+  const [accountHolder, setAccountHolder] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [branchCode, setBranchCode] = useState("");
+  const [editingBank, setEditingBank] = useState(false);
+  const [savingBank, setSavingBank] = useState(false);
+  const [hasBankDetails, setHasBankDetails] = useState(false);
+
   const load = useCallback(async () => {
     try {
-      const [pref, myCards] = await Promise.all([getPreferredPaymentMethod(), getMyCards()]);
+      const [pref, myCards, bank] = await Promise.all([
+        getPreferredPaymentMethod(),
+        getMyCards(),
+        getMyBankDetails(),
+      ]);
       setPreferred(pref);
       setCards(myCards);
+      setBankName(bank.bankName ?? "");
+      setAccountHolder(bank.accountHolder ?? "");
+      setAccountNumber(bank.accountNumber ?? "");
+      setBranchCode(bank.branchCode ?? "");
+      setHasBankDetails(!!bank.accountNumber);
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load payment methods.");
@@ -65,6 +88,51 @@ export default function PaymentMethodsScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveBankDetails = async () => {
+    if (!bankName.trim() || !accountHolder.trim() || !accountNumber.trim()) {
+      Alert.alert("Missing details", "Bank name, account holder, and account number are required.");
+      return;
+    }
+    setSavingBank(true);
+    try {
+      await updateBankDetails({
+        bankName: bankName.trim(),
+        accountHolder: accountHolder.trim(),
+        accountNumber: accountNumber.trim(),
+        branchCode: branchCode.trim() || undefined,
+      });
+      setHasBankDetails(true);
+      setEditingBank(false);
+    } catch (e: any) {
+      Alert.alert("Couldn't save banking details", e?.message ?? "Please try again.");
+    } finally {
+      setSavingBank(false);
+    }
+  };
+
+  const handleRemoveBankDetails = () => {
+    Alert.alert("Remove banking details", "This will delete your saved bank account details.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await clearBankDetails();
+            setBankName("");
+            setAccountHolder("");
+            setAccountNumber("");
+            setBranchCode("");
+            setHasBankDetails(false);
+            setEditingBank(false);
+          } catch (e: any) {
+            Alert.alert("Couldn't remove details", e?.message ?? "Please try again.");
+          }
+        },
+      },
+    ]);
   };
 
   // A saved card only exists after a successful card ride payment or
@@ -194,6 +262,47 @@ export default function PaymentMethodsScreen() {
               </Pressable>
             </GlassCard>
           ))
+        )}
+
+        <View style={styles.cardsHeaderRow}>
+          <Text style={[styles.section, { marginTop: SPACE.md }]}>Banking Details</Text>
+          {hasBankDetails && !editingBank ? (
+            <Pressable onPress={() => setEditingBank(true)} style={styles.addCardBtn}>
+              <Ionicons name="create-outline" size={16} color={COLORS.red} />
+              <Text style={styles.addCardTxt}>Edit</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <Text style={styles.hint}>
+          For refunds and payouts. This is separate from the card used to pay for rides above.
+        </Text>
+
+        {hasBankDetails && !editingBank ? (
+          <GlassCard style={{ gap: 4 }}>
+            <Text style={styles.cardTxt}>{bankName}</Text>
+            <Text style={styles.cardExp}>{accountHolder} · •••• {accountNumber.slice(-4)}</Text>
+            {branchCode ? <Text style={styles.cardExp}>Branch code: {branchCode}</Text> : null}
+            <Pressable onPress={handleRemoveBankDetails} style={{ alignSelf: "flex-start", marginTop: 6 }}>
+              <Text style={[styles.addCardTxt, { color: COLORS.textFaint }]}>Remove</Text>
+            </Pressable>
+          </GlassCard>
+        ) : (
+          <GlassCard style={{ gap: SPACE.sm }}>
+            <TextField label="Bank Name" placeholder="e.g. FNB" value={bankName} onChangeText={setBankName} autoCapitalize="words" />
+            <TextField label="Account Holder" placeholder="Full name on account" value={accountHolder} onChangeText={setAccountHolder} autoCapitalize="words" />
+            <TextField label="Account Number" placeholder="Account number" value={accountNumber} onChangeText={setAccountNumber} keyboardType="numeric" />
+            <TextField label="Branch Code (optional)" placeholder="e.g. 250655" value={branchCode} onChangeText={setBranchCode} keyboardType="numeric" />
+            <PrimaryButton
+              label={savingBank ? "Saving..." : "Save Banking Details"}
+              onPress={handleSaveBankDetails}
+              disabled={savingBank}
+            />
+            {editingBank ? (
+              <Pressable onPress={() => setEditingBank(false)} style={{ alignSelf: "center", marginTop: 2 }}>
+                <Text style={styles.addCardTxt}>Cancel</Text>
+              </Pressable>
+            ) : null}
+          </GlassCard>
         )}
       </ScrollView>
       <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import { resetTo } from "../lib/navigation";
 
 import Screen from "../components/Screen";
 import RiderHeader from "../components/RiderHeader";
@@ -33,7 +34,7 @@ export default function RideChatScreen() {
       try {
         const profile = await getCurrentProfile();
         if (!profile) {
-          router.replace("/auth/login");
+          resetTo("/auth/login");
           return;
         }
         const r = await getRideById(rideId);

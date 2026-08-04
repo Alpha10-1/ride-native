@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Dimensions,
   Pressable,
@@ -15,6 +16,8 @@ import { router } from "expo-router";
 import RowItem from "./RowItem";
 import { COLORS, RADIUS, SPACE } from "../theme/tokens";
 import { logout } from "../lib/auth";
+import { getMyDriverStatus, applyToDrive, switchActiveMode } from "../lib/driverApplication";
+import { resetTo } from "../lib/navigation";
 
 function BecomeDriverBanner({ onPress }: { onPress: () => void }) {
   return (
@@ -60,6 +63,60 @@ export default function SideMenuDrawer({
   const translateX = useRef(new Animated.Value(-panelW)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
 
+  // Whether this account has already provided driver info at all
+  // (independent of which side of the app they're currently viewing) —
+  // decides whether the rider side shows the full "Apply" banner or just
+  // a quick "Switch to Driver" row, and lets the banner's press handler
+  // know whether to jump straight into registration.
+  const [isRegisteredDriver, setIsRegisteredDriver] = useState(false);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getMyDriverStatus()
+      .then((status) => {
+        if (!cancelled) setIsRegisteredDriver(status.isDriver);
+      })
+      .catch(() => {
+        // Non-critical — worst case the banner shows a beat longer than
+        // it needs to; the press handler re-checks anyway.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const handleApply = async () => {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      onClose();
+      await applyToDrive();
+    } catch (e: any) {
+      Alert.alert("Couldn't switch to driver mode", e?.message ?? "Please try again.");
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const handleSwitchToRider = async () => {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      onClose();
+      await switchActiveMode("rider");
+      resetTo("/(rider)/home");
+    } catch (e: any) {
+      Alert.alert("Couldn't switch to rider mode", e?.message ?? "Please try again.");
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const isDriver = role === "driver";
+  const base = isDriver ? "/(driver)" : "/(rider)";
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(translateX, {
@@ -74,9 +131,6 @@ export default function SideMenuDrawer({
       }),
     ]).start();
   }, [open, panelW, translateX, backdrop]);
-
-  const isDriver = role === "driver";
-  const base = isDriver ? "/(driver)" : "/(rider)";
 
   return (
     <View
@@ -112,12 +166,17 @@ export default function SideMenuDrawer({
           contentContainerStyle={{ paddingHorizontal: SPACE.md, gap: SPACE.sm, paddingBottom: SPACE.xl }}
           showsVerticalScrollIndicator={false}
         >
-          {!isDriver && (
-            <BecomeDriverBanner
-              onPress={() => {
-                onClose();
-                router.push("/auth/role");
-              }}
+          {!isDriver && !isRegisteredDriver && (
+            <BecomeDriverBanner onPress={handleApply} />
+          )}
+
+          {!isDriver && isRegisteredDriver && (
+            <RowItem
+              title="Switch to Driver"
+              subtitle="Go online and take trips"
+              icon="car-sport-outline"
+              showChevron={false}
+              onPress={handleApply}
             />
           )}
 
@@ -132,22 +191,34 @@ export default function SideMenuDrawer({
           />
 
           {isDriver ? (
-            <RowItem
-              title={online ? "Go Offline" : "Go Online"}
-              subtitle={online ? "Stop accepting trips" : "Start accepting trips"}
-              icon={online ? "power" : "car-outline"}
-              danger={online}
-              showChevron={false}
-              onPress={() => {
-                if (onToggleOnline) {
-                  onToggleOnline();
-                  onClose();
-                } else {
-                  onClose();
-                  router.push("/(driver)/home");
-                }
-              }}
-            />
+            <>
+              <RowItem
+                title={online ? "Go Offline" : "Go Online"}
+                subtitle={online ? "Stop accepting trips" : "Start accepting trips"}
+                icon={online ? "power" : "car-outline"}
+                danger={online}
+                showChevron={false}
+                onPress={() => {
+                  if (onToggleOnline) {
+                    onToggleOnline();
+                    onClose();
+                  } else {
+                    onClose();
+                    // Same screen already, but resetTo (not push) so
+                    // repeatedly tapping this can't stack up duplicate
+                    // driver-home entries that pile up in back history.
+                    resetTo("/(driver)/home");
+                  }
+                }}
+              />
+              <RowItem
+                title="Switch to Rider"
+                subtitle="Book a trip instead"
+                icon="person-outline"
+                showChevron={false}
+                onPress={handleSwitchToRider}
+              />
+            </>
           ) : (
             <RowItem
               title="Book a Ride"
@@ -155,7 +226,15 @@ export default function SideMenuDrawer({
               icon="car-outline"
               onPress={() => {
                 onClose();
-                router.push("/(rider)/home");
+                // resetTo, not push — this is already the screen
+                // underneath the menu most of the time. Pushing a
+                // duplicate on top of itself is how repeatedly tapping
+                // this row (or the equivalent Go Online row above) used
+                // to leave a growing pile of same-portal entries in back
+                // history — noticeable as "back button eventually shows
+                // a screen from the wrong portal" once combined with any
+                // earlier driver/rider mode switch in the same session.
+                resetTo("/(rider)/home");
               }}
             />
           )}
@@ -231,7 +310,7 @@ export default function SideMenuDrawer({
             showChevron={false}
             onPress={() => {
               onClose();
-              logout().finally(() => router.replace("/auth/login"));
+              logout().finally(() => resetTo("/auth/login"));
             }}
           />
         </ScrollView>

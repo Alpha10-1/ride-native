@@ -89,24 +89,28 @@ export function summarizeStatement(trips: StatementTrip[]): StatementSummary {
 // — no server-side PDF generation involved.
 export async function exportStatementPdf(params: {
   driverName: string;
+  vehicleLabel?: string; // e.g. "Toyota Corolla · CA 123-456"
   period: StatementPeriod;
   periodLabel: string;
+  periodStart: Date;
   trips: StatementTrip[];
 }) {
   const Print = await import("expo-print");
   const Sharing = await import("expo-sharing");
+  const { brandStyles, brandHeader, brandFooter, makeDocRef } = await import("./pdfBranding");
 
   const summary = summarizeStatement(params.trips);
+  const docRef = makeDocRef("STMT", params.periodStart);
 
   const rows = params.trips
     .map(
       (t) => `
         <tr>
-          <td>${new Date(t.completed_at).toLocaleDateString("en-ZA", { day: "2-digit", month: "short" })}</td>
+          <td>${new Date(t.completed_at).toLocaleDateString("en-ZA", { weekday: "short", day: "2-digit", month: "short" })}</td>
           <td>${t.pickup_address} → ${t.destination_address}</td>
           <td>${t.ride_tier}</td>
-          <td>${t.actual_distance_km?.toFixed(1) ?? "—"} km</td>
-          <td style="text-align:right">${formatFare(t.final_fare_cents)}</td>
+          <td class="num">${t.actual_distance_km?.toFixed(1) ?? "—"} km</td>
+          <td class="num">${formatFare(t.final_fare_cents)}</td>
         </tr>`
     )
     .join("");
@@ -115,33 +119,47 @@ export async function exportStatementPdf(params: {
     <html>
       <head>
         <meta charset="utf-8" />
-        <style>
-          body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #111; padding: 24px; }
-          h1 { font-size: 20px; margin-bottom: 2px; }
-          .sub { color: #666; font-size: 13px; margin-bottom: 20px; }
-          .summary { display: flex; gap: 24px; margin-bottom: 20px; }
-          .summary div { flex: 1; }
-          .summary .label { font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 1px; }
-          .summary .value { font-size: 18px; font-weight: 700; margin-top: 2px; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; }
-          th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
-          th { color: #888; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
-        </style>
+        <style>${brandStyles()}</style>
       </head>
       <body>
-        <h1>${params.driverName} — ${params.period === "weekly" ? "Weekly" : "Monthly"} Statement</h1>
-        <div class="sub">${params.periodLabel}</div>
-        <div class="summary">
-          <div><div class="label">Trips</div><div class="value">${summary.tripCount}</div></div>
-          <div><div class="label">Earnings</div><div class="value">${formatFare(summary.totalEarningsCents)}</div></div>
-          <div><div class="label">Distance</div><div class="value">${summary.totalDistanceKm.toFixed(1)} km</div></div>
+        ${brandHeader(
+          `${params.period === "weekly" ? "Weekly" : "Monthly"} Driver Statement`,
+          docRef
+        )}
+
+        <div class="party-block">
+          <div class="party">
+            <div class="label">Driver</div>
+            <div class="name">${params.driverName}</div>
+            ${params.vehicleLabel ? `<div class="detail">${params.vehicleLabel}</div>` : ""}
+          </div>
+          <div class="party" style="text-align:right">
+            <div class="label">Statement Period</div>
+            <div class="name">${params.periodLabel}</div>
+          </div>
         </div>
+
+        <div class="summary">
+          <div class="card"><div class="label">Trips Completed</div><div class="value">${summary.tripCount}</div></div>
+          <div class="card"><div class="label">Distance Covered</div><div class="value">${summary.totalDistanceKm.toFixed(1)} km</div></div>
+          <div class="card highlight"><div class="label">Net Earnings</div><div class="value">${formatFare(summary.totalEarningsCents)}</div></div>
+        </div>
+
         <table>
           <thead>
-            <tr><th>Date</th><th>Trip</th><th>Tier</th><th>Distance</th><th style="text-align:right">Fare</th></tr>
+            <tr><th>Date</th><th>Trip</th><th>Tier</th><th class="num">Distance</th><th class="num">Fare</th></tr>
           </thead>
-          <tbody>${rows || `<tr><td colspan="5" style="color:#999">No completed trips this period.</td></tr>`}</tbody>
+          <tbody>
+            ${rows || `<tr><td colspan="5" class="empty-note">No completed trips in this period.</td></tr>`}
+          </tbody>
+          ${
+            params.trips.length > 0
+              ? `<tfoot><tr class="total-row"><td colspan="4">Total Earnings</td><td class="num">${formatFare(summary.totalEarningsCents)}</td></tr></tfoot>`
+              : ""
+          }
         </table>
+
+        ${brandFooter()}
       </body>
     </html>
   `;

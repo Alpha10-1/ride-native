@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { router } from "expo-router";
+import { resetTo } from "../lib/navigation";
 
 import Screen from "../components/Screen";
 import RiderHeader from "../components/RiderHeader";
@@ -42,7 +43,7 @@ export default function PrivacyScreen() {
                     setDeleting(true);
                     try {
                       await deleteAccount();
-                      router.replace("/auth/login");
+                      resetTo("/auth/login");
                     } catch (e: any) {
                       setDeleting(false);
                       Alert.alert(

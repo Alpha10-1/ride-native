@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
+import { resetTo } from "../lib/navigation";
 import { Ionicons } from "@expo/vector-icons";
 
 import Screen from "../components/Screen";
@@ -27,7 +28,7 @@ export default function LanguageScreen() {
       try {
         const profile = await getCurrentProfile();
         if (!profile) {
-          router.replace("/auth/login");
+          resetTo("/auth/login");
           return;
         }
         setSelected((profile.language as Language) ?? "en");

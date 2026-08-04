@@ -152,3 +152,53 @@ export async function startRideCardCheckout(
     amountCents: data.amount_cents,
   };
 }
+
+// ============================================
+// BANKING DETAILS (record-keeping — refunds/payouts, distinct from the
+// card-on-file used for ride payments)
+// ============================================
+export type BankDetails = {
+  bankName: string | null;
+  accountHolder: string | null;
+  accountNumber: string | null;
+  branchCode: string | null;
+};
+
+export async function getMyBankDetails(): Promise<BankDetails> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) throw new Error("Not signed in.");
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("bank_name, bank_account_holder, bank_account_number, bank_branch_code")
+    .eq("id", userId)
+    .single();
+  if (error) throw error;
+  return {
+    bankName: data.bank_name,
+    accountHolder: data.bank_account_holder,
+    accountNumber: data.bank_account_number,
+    branchCode: data.bank_branch_code,
+  };
+}
+
+export async function updateBankDetails(details: {
+  bankName: string;
+  accountHolder: string;
+  accountNumber: string;
+  branchCode?: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc("update_bank_details", {
+    bank_name_in: details.bankName,
+    account_holder_in: details.accountHolder,
+    account_number_in: details.accountNumber,
+    branch_code_in: details.branchCode ?? null,
+  });
+  if (error) throw error;
+}
+
+export async function clearBankDetails(): Promise<void> {
+  const { error } = await supabase.rpc("clear_bank_details");
+  if (error) throw error;
+}

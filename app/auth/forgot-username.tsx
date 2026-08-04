@@ -91,7 +91,7 @@ export default function ForgotUsernameScreen() {
                 placeholder="6-digit code"
                 value={code}
                 onChangeText={setCode}
-                keyboardType="number-pad"
+                keyboardType="numeric"
               />
               {error ? <Text style={styles.error}>{error}</Text> : null}
               <View style={{ marginTop: SPACE.sm }}>

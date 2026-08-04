@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
+import { resetTo } from "../lib/navigation";
 
 import Screen from "../components/Screen";
 import RiderHeader from "../components/RiderHeader";
@@ -34,7 +35,7 @@ export default function PromotionsScreen() {
     try {
       const profile = await getCurrentProfile();
       if (!profile) {
-        router.replace("/auth/login");
+        resetTo("/auth/login");
         return;
       }
       setRole(profile.role);

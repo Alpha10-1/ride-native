@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Switch, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
+import { resetTo } from "../lib/navigation";
 
 import Screen from "../components/Screen";
 import RiderHeader from "../components/RiderHeader";
@@ -20,7 +21,7 @@ export default function NotificationsScreen() {
       try {
         const profile = await getCurrentProfile();
         if (!profile) {
-          router.replace("/auth/login");
+          resetTo("/auth/login");
           return;
         }
         setPushEnabled(profile.notify_push ?? true);

@@ -21,21 +21,40 @@ export default function ResetPasswordScreen() {
 
   // The recovery link opens the app at this exact route with the session
   // tokens attached (either as ?code= or #access_token=) — grab whichever
-  // URL actually opened the app and hand it to Supabase.
+  // URL actually opened the app and hand it to Supabase. getInitialURL()
+  // only covers a cold start (app wasn't running); if the app was already
+  // open in the background, tapping the email link fires a 'url' event
+  // instead and getInitialURL() comes back null — without this listener,
+  // "forgot password" silently fails to advance for anyone who didn't
+  // fully close the app first.
   useEffect(() => {
-    (async () => {
+    let handled = false;
+    const tryExchange = async (url: string | null) => {
+      if (!url || handled) return;
+      handled = true;
       try {
-        const url = await Linking.getInitialURL();
-        if (!url) {
-          setLinkError("This reset link is missing or already used. Please request a new one.");
-          return;
-        }
         await exchangeRecoverySession(url);
         setReady(true);
       } catch (e: any) {
         setLinkError(e?.message ?? "This reset link is invalid or has expired. Please request a new one.");
       }
-    })();
+    };
+
+    Linking.getInitialURL().then(tryExchange);
+    const sub = Linking.addEventListener("url", ({ url }) => tryExchange(url));
+
+    // If neither fires within a few seconds (e.g. this screen was reached
+    // some other way, with no link at all), stop showing a spinner.
+    const timeout = setTimeout(() => {
+      if (!handled) {
+        setLinkError("This reset link is missing or already used. Please request a new one.");
+      }
+    }, 4000);
+
+    return () => {
+      sub.remove();
+      clearTimeout(timeout);
+    };
   }, []);
 
   const canSubmit = password.length >= 8 && password === confirm;

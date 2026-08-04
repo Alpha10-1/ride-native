@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Image, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { resetTo } from "../lib/navigation";
+import * as ImagePicker from "expo-image-picker";
 
 import Screen from "../components/Screen";
 import RiderHeader from "../components/RiderHeader";
@@ -10,7 +12,7 @@ import GlassCard from "../components/GlassCard";
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { COLORS, SPACE, RADIUS } from "../theme/tokens";
-import { getCurrentProfile, updateProfile } from "../lib/auth";
+import { getCurrentProfile, updateProfile, uploadAvatar } from "../lib/auth";
 import { getProfileStats, formatFare, ProfileStats } from "../lib/rides";
 import { getMyVerificationStatus, VerificationStatus } from "../lib/verification";
 
@@ -38,6 +40,8 @@ export default function ProfileScreen() {
 
   const [stats, setStats] = useState<ProfileStats>({ tripCount: 0, totalCents: 0 });
   const [verification, setVerification] = useState<VerificationStatus>("unverified");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // driver-only
   const [driverLicenseNumber, setDriverLicenseNumber] = useState("");
@@ -50,7 +54,7 @@ export default function ProfileScreen() {
       try {
         const profile = await getCurrentProfile();
         if (!profile) {
-          router.replace("/auth/login");
+          resetTo("/auth/login");
           return;
         }
         setUsername(profile.username);
@@ -60,6 +64,7 @@ export default function ProfileScreen() {
         setLastName(profile.last_name);
         setEmail(profile.email);
         setCellphone(profile.cellphone);
+        setAvatarUrl(profile.avatar_url ?? null);
         setDriverLicenseNumber(profile.driver_license_number ?? "");
         setVehicleMake(profile.vehicle_make ?? "");
         setVehicleModel(profile.vehicle_model ?? "");
@@ -104,6 +109,32 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleChangePhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow photo library access to update your profile photo.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.7,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled) return;
+
+    setUploadingAvatar(true);
+    try {
+      const url = await uploadAvatar(result.assets[0].uri);
+      setAvatarUrl(url);
+    } catch (e: any) {
+      Alert.alert("Upload failed", e?.message ?? "Couldn't update your photo. Please try again.");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const initials = `${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.toUpperCase() || "?";
   const memberSince = createdAt
     ? new Date(createdAt).toLocaleDateString("en-ZA", { month: "long", year: "numeric" })
@@ -132,9 +163,22 @@ export default function ProfileScreen() {
       >
         {/* Identity header */}
         <GlassCard style={styles.identityCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarTxt}>{initials}</Text>
-          </View>
+          <Pressable onPress={handleChangePhoto} disabled={uploadingAvatar} style={styles.avatarWrap}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatarImg} />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarTxt}>{initials}</Text>
+              </View>
+            )}
+            <View style={styles.avatarBadge}>
+              {uploadingAvatar ? (
+                <ActivityIndicator size="small" color="#000" />
+              ) : (
+                <Ionicons name="camera" size={13} color="#000" />
+              )}
+            </View>
+          </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.nameTxt}>{firstName} {lastName}</Text>
             <Text style={styles.usernameTxt}>@{username}</Text>
@@ -214,10 +258,22 @@ const styles = StyleSheet.create({
   centerFill: { flex: 1, alignItems: "center", justifyContent: "center" },
 
   identityCard: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
+  avatarWrap: { position: "relative" },
   avatar: {
     width: 56, height: 56, borderRadius: 28,
     backgroundColor: "rgba(255,46,46,0.14)",
     borderWidth: 1.5, borderColor: "rgba(255,46,46,0.35)",
+    alignItems: "center", justifyContent: "center",
+  },
+  avatarImg: {
+    width: 56, height: 56, borderRadius: 28,
+    borderWidth: 1.5, borderColor: "rgba(255,46,46,0.35)",
+  },
+  avatarBadge: {
+    position: "absolute", bottom: -2, right: -2,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: COLORS.red,
+    borderWidth: 2, borderColor: "#070707",
     alignItems: "center", justifyContent: "center",
   },
   avatarTxt: { color: COLORS.red, fontWeight: "900", fontSize: 20 },

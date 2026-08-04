@@ -47,9 +47,18 @@ async function notifyDriver(adminClient: any, driverId: string, title: string, b
   try {
     const { data: profile } = await adminClient
       .from("profiles")
-      .select("push_token")
+      .select("push_token, active_mode")
       .eq("id", driverId)
       .maybeSingle();
+
+    // Dual-role accounts can switch between rider and driver mode
+    // (see 20260803120000_dual_role_driver_apply.sql). Someone currently
+    // using the app as a rider shouldn't get driver-side pushes like
+    // "Payment failed" / subscription reminders — those only make sense
+    // to someone actively driving. Billing itself still runs regardless
+    // of active_mode; this only silences the notification.
+    if (profile?.active_mode && profile.active_mode !== "driver") return;
+
     const token = profile?.push_token;
     if (!token) return;
 

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { router } from "expo-router";
+import { resetTo } from "./navigation";
 import { Alert } from "react-native";
 import { registerAndSavePushToken } from "./pushNotifications";
 
@@ -93,6 +93,12 @@ export async function registerUser(payload: RegisterPayload) {
     vehicle_make: payload.role === "driver" ? payload.vehicleMake : null,
     vehicle_model: payload.role === "driver" ? payload.vehicleModel : null,
     license_plate: payload.role === "driver" ? payload.licensePlate : null,
+    // Signing up directly as a driver already provides everything the
+    // later "Apply to drive" flow collects, so this account shouldn't
+    // need to go through that separately — see is_driver/active_mode in
+    // 20260803120000_dual_role_driver_apply.sql.
+    is_driver: payload.role === "driver",
+    active_mode: payload.role,
     agreed_to_terms: true,
   });
 
@@ -210,6 +216,44 @@ export async function updateProfile(payload: ProfileUpdatePayload) {
   return data;
 }
 
+// Uploads a picked image (local file uri) as the signed-in user's profile
+// photo, to the public avatars bucket, then saves the resulting public
+// URL onto their profile row. Shared by both rider and driver profile
+// screens (ProfileScreen.tsx). upsert:true + a fixed filename means
+// re-uploading just replaces the old photo in place — no orphaned files
+// to worry about, beyond the timestamp query param appended below to
+// bust any cached copy of the old image at that same URL.
+export async function uploadAvatar(localUri: string): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) throw new Error("Not signed in.");
+
+  const ext = localUri.split(".").pop()?.split("?")[0] || "jpg";
+  const path = `${userId}/avatar.${ext}`;
+
+  const response = await fetch(localUri);
+  const arrayBuffer = await response.arrayBuffer();
+
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(path, arrayBuffer, {
+      contentType: response.headers.get("content-type") ?? "image/jpeg",
+      upsert: true,
+    });
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrlData } = supabase.storage.from("avatars").getPublicUrl(path);
+  const avatarUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+
+  const { error: updateError } = await supabase
+    .from("profiles")
+    .update({ avatar_url: avatarUrl })
+    .eq("id", userId);
+  if (updateError) throw updateError;
+
+  return avatarUrl;
+}
+
 export type Language = "en" | "af" | "zu" | "xh";
 
 export async function updatePreferences(payload: {
@@ -244,7 +288,7 @@ export async function redirectAfterAuth() {
   try {
     const profile = await getCurrentProfile();
     if (!profile) {
-      router.replace("/auth/login");
+      resetTo("/auth/login");
       return;
     }
     if (profile.is_suspended) {
@@ -255,7 +299,7 @@ export async function redirectAfterAuth() {
           ? `Your account has been suspended: ${profile.suspension_reason}`
           : "Your account has been suspended. Contact support for details."
       );
-      router.replace("/auth/login");
+      resetTo("/auth/login");
       return;
     }
     if (profile.role === "staff") {
@@ -264,19 +308,20 @@ export async function redirectAfterAuth() {
         "Staff account",
         "This account is for the admin dashboard, not the rider/driver app."
       );
-      router.replace("/auth/login");
+      resetTo("/auth/login");
       return;
     }
     // Fire-and-forget — push setup should never hold up or break sign-in.
     registerAndSavePushToken().catch(() => {});
-    if (profile.role === "driver") {
-      router.replace("/(driver)/home");
-    } else {
-      router.replace("/(rider)/home");
-    }
+    // active_mode (not role) decides which side of the app to land on —
+    // a dual-registered account's role reflects how they originally
+    // signed up, not which mode they last used. Fall back to role for
+    // any row that somehow predates the active_mode column.
+    const mode = profile.active_mode ?? profile.role;
+    resetTo(mode === "driver" ? "/(driver)/home" : "/(rider)/home");
   } catch {
     // Profile fetch failed — fall back to manual role picker
-    router.replace("/auth/role");
+    resetTo("/auth/role");
   }
 }
 

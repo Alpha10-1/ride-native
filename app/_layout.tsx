@@ -4,6 +4,7 @@ import { Alert } from "react-native";
 
 import { supabase } from "../src/lib/supabase";
 import { registerAndSavePushToken, addNotificationTapListener } from "../src/lib/pushNotifications";
+import { resetTo } from "../src/lib/navigation";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -25,7 +26,7 @@ export default function RootLayout() {
           "Staff account",
           "This account is for the admin dashboard, not the rider/driver app."
         );
-        router.replace("/auth/login");
+        resetTo("/auth/login");
         return;
       }
 
@@ -37,7 +38,7 @@ export default function RootLayout() {
             ? `Your account has been suspended: ${profile.suspension_reason}`
             : "Your account has been suspended. Contact support for details."
         );
-        router.replace("/auth/login");
+        resetTo("/auth/login");
         return;
       }
 
@@ -53,10 +54,15 @@ export default function RootLayout() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, active_mode")
         .eq("id", userId)
         .single();
       const role = profile?.role ?? "rider";
+      // active_mode reflects which side of the app a dual-role account is
+      // currently using — role alone never changes back once someone
+      // registers as a driver, so it can't tell "switched to rider" apart
+      // from "still driving" the way active_mode can.
+      const activeMode = profile?.active_mode ?? role;
 
       if (data.type === "ride_status" && data.rideId) {
         router.push({
@@ -76,9 +82,11 @@ export default function RootLayout() {
       } else if (data.type === "support_message") {
         router.push(role === "driver" ? "/(driver)/support-chat" : "/(rider)/support-chat");
       } else if (data.type === "new_ride_request") {
-        // Only meaningful for a driver — a rider would never receive this
-        // push type, but guard anyway.
-        if (role === "driver") {
+        // Driver-only, and unlike the cases above there's no specific
+        // ride this account is already a party to — this is purely "are
+        // you currently driving", so active_mode is the right check,
+        // not the static signup role.
+        if (activeMode === "driver") {
           router.push("/(driver)/requests");
         }
       } else if (data.type === "sos_alert") {

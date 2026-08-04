@@ -8,6 +8,7 @@ import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
@@ -375,6 +376,7 @@ export default function ActiveTripScreen() {
         </MapView>
 
         <SOSFab rideId={ride.id} role="driver" />
+        <SupportChatFab role="driver" bottom={280} />
 
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>
