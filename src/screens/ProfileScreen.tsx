@@ -12,7 +12,10 @@ import GlassCard from "../components/GlassCard";
 import TextField from "../components/TextField";
 import PrimaryButton from "../components/PrimaryButton";
 import { COLORS, SPACE, RADIUS } from "../theme/tokens";
-import { getCurrentProfile, updateProfile, uploadAvatar } from "../lib/auth";
+import {
+  getCurrentProfile, updateProfile, uploadAvatar,
+  isRecoveryEmailVerified, resendRecoveryEmail,
+} from "../lib/auth";
 import { getProfileStats, formatFare, ProfileStats } from "../lib/rides";
 import { getMyVerificationStatus, VerificationStatus } from "../lib/verification";
 
@@ -42,6 +45,8 @@ export default function ProfileScreen() {
   const [verification, setVerification] = useState<VerificationStatus>("unverified");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [recoveryVerified, setRecoveryVerified] = useState<boolean | null>(null);
+  const [resendingRecovery, setResendingRecovery] = useState(false);
 
   // driver-only
   const [driverLicenseNumber, setDriverLicenseNumber] = useState("");
@@ -71,6 +76,7 @@ export default function ProfileScreen() {
         setLicensePlate(profile.license_plate ?? "");
 
         getProfileStats().then(setStats).catch(() => {});
+        isRecoveryEmailVerified().then(setRecoveryVerified).catch(() => {});
         if (profile.role === "driver") {
           getMyVerificationStatus().then((v) => setVerification(v.status)).catch(() => {});
         }
@@ -132,6 +138,21 @@ export default function ProfileScreen() {
       Alert.alert("Upload failed", e?.message ?? "Couldn't update your photo. Please try again.");
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleResendRecoveryEmail = async () => {
+    setResendingRecovery(true);
+    try {
+      await resendRecoveryEmail();
+      Alert.alert(
+        "Verification email sent",
+        "Check your inbox (and spam folder) for a confirmation link. Password reset and forgot-username recovery will only work once you've clicked it."
+      );
+    } catch (e: any) {
+      Alert.alert("Couldn't send email", e?.message ?? "Please try again.");
+    } finally {
+      setResendingRecovery(false);
     }
   };
 
@@ -230,6 +251,24 @@ export default function ProfileScreen() {
           <TextField label="Cellphone" placeholder="082 123 4567" value={cellphone} onChangeText={setCellphone} keyboardType="phone-pad" />
         </GlassCard>
 
+        {recoveryVerified === false && (
+          <GlassCard style={{ gap: 6 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Ionicons name="alert-circle-outline" size={16} color="#ffb020" />
+              <Text style={styles.recoveryTitle}>Account recovery email not verified</Text>
+            </View>
+            <Text style={styles.recoveryBody}>
+              Forgot Password and Forgot Username only work once you've confirmed your email. Tap
+              below to (re)send the confirmation link to {email || "your email"}.
+            </Text>
+            <Pressable onPress={handleResendRecoveryEmail} disabled={resendingRecovery} style={{ alignSelf: "flex-start", marginTop: 2 }}>
+              <Text style={styles.recoveryLink}>
+                {resendingRecovery ? "Sending..." : "Resend verification email"}
+              </Text>
+            </Pressable>
+          </GlassCard>
+        )}
+
         {role === "driver" && (
           <>
             <Text style={styles.section}>Vehicle & License Details</Text>
@@ -324,4 +363,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
+  recoveryTitle: { color: "#ffb020", fontWeight: "800", fontSize: 13 },
+  recoveryBody: { color: COLORS.textDim, fontSize: 12, lineHeight: 17 },
+  recoveryLink: { color: COLORS.red, fontWeight: "800", fontSize: 12 },
 });

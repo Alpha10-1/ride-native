@@ -25,6 +25,7 @@ export default function StatementsScreen() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [driverName, setDriverName] = useState("Driver");
+  const [vehicleLabel, setVehicleLabel] = useState<string | undefined>(undefined);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,7 +36,14 @@ export default function StatementsScreen() {
         getCurrentProfile(),
       ]);
       setTrips(data);
-      if (profile) setDriverName(`${profile.first_name} ${profile.last_name}`.trim());
+      if (profile) {
+        setDriverName(`${profile.first_name} ${profile.last_name}`.trim());
+        const vehicleBits = [
+          [profile.vehicle_make, profile.vehicle_model].filter(Boolean).join(" "),
+          profile.license_plate,
+        ].filter(Boolean);
+        setVehicleLabel(vehicleBits.length ? vehicleBits.join(" · ") : undefined);
+      }
     } catch {
       setTrips([]);
     } finally {
@@ -56,10 +64,13 @@ export default function StatementsScreen() {
   const handleExport = async () => {
     setExporting(true);
     try {
+      const { start } = getPeriodBounds(period, anchor);
       await exportStatementPdf({
         driverName,
+        vehicleLabel,
         period,
         periodLabel: formatPeriodLabel(period, anchor),
+        periodStart: start,
         trips,
       });
     } catch (e: any) {

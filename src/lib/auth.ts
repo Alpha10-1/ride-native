@@ -393,6 +393,31 @@ export async function exchangeRecoverySession(url: string) {
   if (error) throw error;
 }
 
+// True once this account's Supabase Auth email has moved off the
+// synthetic "<username>@ridenative.internal" placeholder — i.e. the
+// confirmation link from linkRecoveryEmail has actually been clicked.
+// Until this is true, requestPasswordReset/requestUsernameRecoveryOtp
+// have no real inbox to deliver to and will (by design) silently do
+// nothing for this account.
+export async function isRecoveryEmailVerified(): Promise<boolean> {
+  const { data } = await supabase.auth.getSession();
+  const authEmail = data.session?.user.email ?? "";
+  return authEmail.length > 0 && !authEmail.endsWith("@ridenative.internal");
+}
+
+// Re-sends the "confirm your email" link using the address currently on
+// the profile. Surfaces errors (unlike the best-effort call at signup)
+// since this is a deliberate user action from Settings/Profile — they
+// should know immediately if it failed rather than just never getting
+// an email.
+export async function resendRecoveryEmail(): Promise<void> {
+  const profile = await getCurrentProfile();
+  if (!profile?.email) {
+    throw new Error("No email on file. Add one under Personal Information first.");
+  }
+  await linkRecoveryEmail(profile.email);
+}
+
 // "Forgot username" step 1 — sends a one-time code to the given email if
 // it's a verified recovery email on some account. shouldCreateUser: false
 // so this can never accidentally create a new blank account.

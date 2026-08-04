@@ -91,6 +91,24 @@ export default function DriverTripCompleteScreen() {
                 {ride.demand_multiplier}× demand
               </Text>
             ) : null}
+            <View style={styles.paymentPill}>
+              <Ionicons
+                name={ride.payment_method === "cash" ? "cash-outline" : ride.payment_method === "wallet" ? "wallet-outline" : "card-outline"}
+                size={12}
+                color={COLORS.textFaint}
+              />
+              <Text style={styles.paymentPillTxt}>
+                {ride.payment_method === "cash"
+                  ? "Collect cash from rider"
+                  : ride.payment_status === "paid"
+                  ? `Paid by ${ride.payment_method}`
+                  : ride.payment_status === "pending"
+                  ? "Payment processing..."
+                  : ride.payment_status === "failed"
+                  ? "Rider's payment failed"
+                  : "Awaiting payment"}
+              </Text>
+            </View>
           </GlassCard>
         ) : null}
 
@@ -132,6 +150,8 @@ const styles = StyleSheet.create({
   },
   earningAmount: { color: "rgba(120,220,150,0.95)", fontSize: 36, fontWeight: "900" },
   earningDetails: { color: COLORS.textDim, fontSize: 12 },
+  paymentPill: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  paymentPillTxt: { color: COLORS.textFaint, fontSize: 11, fontWeight: "700" },
   detailRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
   detailText: { flex: 1, color: COLORS.textDim, fontSize: 13 },
   dotPickup: {

@@ -9,6 +9,7 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import PulsingDot from "../../src/components/PulsingDot";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { bearing } from "../../src/lib/geo";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
@@ -360,6 +361,7 @@ export default function RideTrackingScreen() {
         </MapView>
 
         <SOSFab rideId={ride.id} role="rider" />
+        <SupportChatFab role="rider" bottom={280} />
 
         {/* Status panel */}
         <View style={styles.panel}>

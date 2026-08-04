@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
+import { resetTo } from "../../src/lib/navigation";
 
 import Screen from "../../src/components/Screen";
 import RiderHeader from "../../src/components/RiderHeader";
@@ -15,6 +16,7 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import RowItem from "../../src/components/RowItem";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
@@ -108,6 +110,21 @@ export default function DriverHome() {
     getCurrentProfile()
       .then((p) => {
         if (!p || cancelled) return;
+        // Dual-role accounts can switch to rider mode from elsewhere
+        // (the side menu, most commonly) — if that happened while this
+        // screen was still around (backgrounded, a stale deep link, a
+        // notification tap), don't let it keep acting as the driver
+        // screen; bounce to the rider side instead.
+        if (p.active_mode && p.active_mode !== "driver") {
+          // resetTo, not replace — this guard can trigger repeatedly as
+          // the rider backs through several stale driver screens still
+          // sitting in history from before they switched modes; replace
+          // alone only swaps the current one, so each back-press would
+          // just reveal the next driver screen underneath instead of
+          // actually leaving the driver portal for good.
+          resetTo("/(rider)/home");
+          return;
+        }
         setFirstName(p.first_name);
         if (p.vehicle_make || p.vehicle_model || p.license_plate) {
           setVehicle({
@@ -351,6 +368,7 @@ export default function DriverHome() {
         onMenu={() => setMenuOpen((v) => !v)}
       />
       <SOSFab role="driver" />
+      <SupportChatFab role="driver" />
 
       <View style={styles.mapWrap}>
         {coords ? (

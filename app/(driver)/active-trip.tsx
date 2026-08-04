@@ -8,6 +8,7 @@ import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
@@ -16,6 +17,7 @@ import {
   updateDriverLocation, formatFare, statusLabel,
   RideStop, getRideStops, markStopReached,
 } from "../../src/lib/rides";
+import { settleRidePayment, chargeRideCard } from "../../src/lib/payments";
 
 // Simulates the driver moving from pickup toward destination in small steps.
 // Returns an array of [lng, lat] waypoints interpolated between two points.
@@ -260,6 +262,25 @@ export default function ActiveTripScreen() {
         ride.estimated_distance_km ?? 5,
         durationMin
       );
+
+      // Settle the fare right away — cash/wallet resolve instantly
+      // server-side. Card only gets marked 'pending' by settleRidePayment;
+      // if the rider already has a saved card, try a one-tap charge here
+      // too so the driver isn't left waiting on the rider to open a
+      // checkout. Any failure here shouldn't block the driver from
+      // seeing their trip summary — the rider's ride-complete screen
+      // (or a saved-card retry) can still resolve it afterward.
+      try {
+        const settlement = await settleRidePayment(ride.id);
+        if (settlement.paymentStatus === "pending" && settlement.method === "card") {
+          await chargeRideCard(ride.id).catch((e: any) =>
+            console.warn("[driver/active-trip] Card charge attempt failed:", e?.message ?? e)
+          );
+        }
+      } catch (e: any) {
+        console.warn("[driver/active-trip] Couldn't settle ride payment:", e?.message ?? e);
+      }
+
       router.replace({ pathname: "/(driver)/trip-complete", params: { rideId: ride.id } });
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to complete ride.");
@@ -355,6 +376,7 @@ export default function ActiveTripScreen() {
         </MapView>
 
         <SOSFab rideId={ride.id} role="driver" />
+        <SupportChatFab role="driver" bottom={280} />
 
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>

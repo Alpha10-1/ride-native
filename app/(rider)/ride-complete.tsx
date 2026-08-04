@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 
 import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
@@ -9,12 +10,17 @@ import PrimaryButton from "../../src/components/PrimaryButton";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { Ride, getRideById, formatFare, TIER_CONFIG } from "../../src/lib/rides";
 import { TripSlip, getTripSlip } from "../../src/lib/rides";
+import {
+  RidePaymentStatus, settleRidePayment, chargeRideCard, startRideCardCheckout,
+} from "../../src/lib/payments";
 
 export default function RideCompleteScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const [ride, setRide] = useState<Ride | null>(null);
   const [slip, setSlip] = useState<TripSlip | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<RidePaymentStatus | null>(null);
+  const [payingNow, setPayingNow] = useState(false);
 
   useEffect(() => {
     if (!rideId) {
@@ -23,10 +29,36 @@ export default function RideCompleteScreen() {
     }
     let cancelled = false;
     getRideById(rideId)
-      .then((r) => {
+      .then(async (r) => {
         if (cancelled) return;
-        if (r) setRide(r);
-        else setError("Couldn't find that trip. It may have been removed.");
+        if (!r) {
+          setError("Couldn't find that trip. It may have been removed.");
+          return;
+        }
+        setRide(r);
+        setPaymentStatus(r.payment_status ?? null);
+
+        // Make sure settlement has actually run for this ride — the
+        // driver's device normally triggers it right after completing
+        // the trip, but this is idempotent, so calling it again here is
+        // harmless and covers the case where the rider's screen gets
+        // here first (or the driver-side call failed silently).
+        if (r.status === "completed") {
+          try {
+            const settlement = await settleRidePayment(rideId);
+            if (cancelled) return;
+            setPaymentStatus(settlement.paymentStatus);
+            if (settlement.paymentStatus === "pending" && settlement.method === "card") {
+              const result = await chargeRideCard(rideId).catch(() => null);
+              if (cancelled) return;
+              if (result?.ok) setPaymentStatus("paid");
+              else if (result && !result.needsCheckout) setPaymentStatus("failed");
+              // if needsCheckout, leave as 'pending' — the "Pay Now" button below handles it
+            }
+          } catch {
+            // non-critical — the payment status pill just won't be fresh yet
+          }
+        }
       })
       .catch((e: any) => {
         if (!cancelled) setError(e?.message ?? "Failed to load trip details.");
@@ -44,6 +76,34 @@ export default function RideCompleteScreen() {
     attempt(5);
     return () => { cancelled = true; };
   }, [rideId]);
+
+  const handlePayNow = async () => {
+    if (!rideId) return;
+    setPayingNow(true);
+    try {
+      const result = await chargeRideCard(rideId);
+      if (result.ok) {
+        setPaymentStatus("paid");
+        return;
+      }
+      if (!result.needsCheckout) {
+        setPaymentStatus("failed");
+        Alert.alert("Payment failed", result.error ?? "Please try a different card.");
+      }
+      // Either no saved card, or the saved-card charge failed — open a
+      // fresh checkout either way.
+      const { authorizationUrl } = await startRideCardCheckout(rideId);
+      const browserResult = await WebBrowser.openAuthSessionAsync(authorizationUrl);
+      if (browserResult.type === "success" || browserResult.type === "cancel" || browserResult.type === "dismiss") {
+        const updated = await getRideById(rideId);
+        if (updated) setPaymentStatus(updated.payment_status ?? null);
+      }
+    } catch (e: any) {
+      Alert.alert("Couldn't process payment", e?.message ?? "Please try again.");
+    } finally {
+      setPayingNow(false);
+    }
+  };
 
   if (error) {
     return (
@@ -111,6 +171,39 @@ export default function RideCompleteScreen() {
               <Ionicons name={tierCfg.icon as any} size={13} color={COLORS.red} />
               <Text style={styles.tierBadgeTxt}>{tierCfg.label}</Text>
             </View>
+          </GlassCard>
+        ) : null}
+
+        {/* Payment status */}
+        {!isCancelled && paymentStatus && paymentStatus !== "unpaid" ? (
+          <GlassCard style={styles.paymentCard}>
+            {paymentStatus === "paid" ? (
+              <>
+                <Ionicons name="checkmark-circle" size={18} color="rgba(120,220,150,0.95)" />
+                <Text style={styles.paymentTxt}>
+                  {ride.payment_method === "cash" ? "Paid in cash" : ride.payment_method === "wallet" ? "Paid from wallet" : "Paid by card"}
+                </Text>
+              </>
+            ) : paymentStatus === "pending" ? (
+              <>
+                <ActivityIndicator size="small" color={COLORS.textDim} />
+                <Text style={styles.paymentTxt}>Processing payment...</Text>
+              </>
+            ) : (
+              <View style={{ flex: 1, gap: SPACE.sm }}>
+                <View style={styles.paymentRowInner}>
+                  <Ionicons name="alert-circle" size={18} color="rgba(255,90,90,0.9)" />
+                  <Text style={styles.paymentTxt}>
+                    {ride.payment_method === "wallet" ? "Insufficient wallet balance" : "Card payment failed"}
+                  </Text>
+                </View>
+                <PrimaryButton
+                  label={payingNow ? "Processing..." : "Pay by Card"}
+                  onPress={handlePayNow}
+                  disabled={payingNow}
+                />
+              </View>
+            )}
           </GlassCard>
         ) : null}
 
@@ -236,6 +329,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255,46,46,0.25)",
   },
   tierBadgeTxt: { color: COLORS.red, fontWeight: "800", fontSize: 12 },
+  paymentCard: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
+  paymentRowInner: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
+  paymentTxt: { color: COLORS.textDim, fontSize: 13, fontWeight: "700", flexShrink: 1 },
   slipTitle: {
     color: COLORS.textFaint, fontSize: 11, letterSpacing: 2,
     textTransform: "uppercase", fontWeight: "800",

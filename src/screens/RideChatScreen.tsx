@@ -38,6 +38,10 @@ export default function RideChatScreen() {
           return;
         }
         const r = await getRideById(rideId);
+        if (!r) {
+          if (!cancelled) setError("This ride no longer exists.");
+          return;
+        }
         const msgs = await getRideMessages(rideId);
         const name = await getOtherPartyName(r.rider_id, r.driver_id);
 
