@@ -18,7 +18,7 @@ export type RiderCard = {
   created_at: string;
 };
 
-export type RidePaymentStatus = "unpaid" | "pending" | "paid" | "failed";
+export type RidePaymentStatus = "unpaid" | "pending" | "reserved" | "paid" | "failed";
 
 export type RidePaymentSettlement = {
   paymentStatus: RidePaymentStatus;
@@ -122,6 +122,44 @@ async function invokeAndUnwrap(functionName: string, body?: Record<string, unkno
   }
   if (data?.error) throw new Error(data.error);
   return data;
+}
+
+// Starts the "Add card" flow: a Paystack Preauthorization hold that gets
+// released automatically the moment it's confirmed (see
+// paystack-initialize-card-verification / the webhook's
+// preauthorization.reserve.success handler) — the card gets verified and
+// saved, but nothing is ever actually charged. Open the returned URL with
+// expo-web-browser, same as any other Paystack checkout.
+export async function startCardVerification(): Promise<{ authorizationUrl: string; reference: string; amountCents: number }> {
+  const data = await invokeAndUnwrap("paystack-initialize-card-verification", {});
+  return {
+    authorizationUrl: data.authorization_url,
+    reference: data.reference,
+    amountCents: data.amount_cents,
+  };
+}
+
+// Places a hold for the ride's agreed fare on the rider's saved card,
+// right after a driver accepts a card-paying ride. Best-effort by design
+// — the caller should not block on or surface failures here as blocking
+// errors; a failed/skipped reservation just means payment happens the
+// normal way (chargeRideCard / startRideCardCheckout) at completion.
+export async function reserveRideCard(
+  rideId: string
+): Promise<{ ok: boolean; skipped?: string; error?: string }> {
+  const data = await invokeAndUnwrap("paystack-reserve-ride-card", { ride_id: rideId });
+  return { ok: !!data.ok, skipped: data.skipped, error: data.ok === false ? data.error : undefined };
+}
+
+// Releases a card hold placed by reserveRideCard, e.g. when a ride gets
+// cancelled after a driver already accepted it. Best-effort — a failure
+// here just means the hold expires on its own later (Paystack's default
+// release window), it doesn't need to block the cancellation.
+export async function releaseRideCardReservation(
+  rideId: string
+): Promise<{ ok: boolean; skipped?: string; error?: string }> {
+  const data = await invokeAndUnwrap("paystack-release-ride-card", { ride_id: rideId });
+  return { ok: !!data.ok, skipped: data.skipped, error: data.ok === false ? data.error : undefined };
 }
 
 // Tries to charge the rider's saved card for a completed ride, no

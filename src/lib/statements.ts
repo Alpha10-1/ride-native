@@ -83,10 +83,9 @@ export function summarizeStatement(trips: StatementTrip[]): StatementSummary {
   );
 }
 
-// Builds a printable HTML statement and hands it to expo-print, then opens
-// the OS share sheet so the driver can save/send the resulting PDF.
-// expo-print + expo-sharing generate and share the file entirely on-device
-// — no server-side PDF generation involved.
+// Builds a printable HTML statement, hands it to expo-print, then saves it
+// to a persistent, user-visible location on the device (see pdfSave.ts) —
+// falling back to the OS share sheet if that's not possible.
 export async function exportStatementPdf(params: {
   driverName: string;
   vehicleLabel?: string; // e.g. "Toyota Corolla · CA 123-456"
@@ -96,7 +95,6 @@ export async function exportStatementPdf(params: {
   trips: StatementTrip[];
 }) {
   const Print = await import("expo-print");
-  const Sharing = await import("expo-sharing");
   const { brandStyles, brandHeader, brandFooter, makeDocRef } = await import("./pdfBranding");
 
   const summary = summarizeStatement(params.trips);
@@ -165,9 +163,8 @@ export async function exportStatementPdf(params: {
   `;
 
   const { uri } = await Print.printToFileAsync({ html });
-  const canShare = await Sharing.isAvailableAsync();
-  if (canShare) {
-    await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Statement" });
-  }
-  return uri;
+  const filename = `RIDE-Statement-${docRef}.pdf`;
+  const { saveOrSharePdf } = await import("./pdfSave");
+  const { savedToDevice } = await saveOrSharePdf(uri, filename, "Statement");
+  return { uri, savedToDevice };
 }

@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
+import { resetTo, navigateFromMenu } from "../../src/lib/navigation";
 
 import Screen from "../../src/components/Screen";
 import RiderHeader from "../../src/components/RiderHeader";
@@ -25,6 +26,7 @@ import {
   RideOffer, getRideOffers, proposeOffer, respondToOffer,
 } from "../../src/lib/negotiation";
 import { getEarningsSummary, EarningsSummary, formatCents } from "../../src/lib/wallet";
+import { reserveRideCard } from "../../src/lib/payments";
 import { getCurrentProfile } from "../../src/lib/auth";
 import { getMyVerificationStatus, VerificationStatus } from "../../src/lib/verification";
 import { getMySubscriptionGate, SubscriptionGate } from "../../src/lib/subscription";
@@ -108,6 +110,21 @@ export default function DriverHome() {
     getCurrentProfile()
       .then((p) => {
         if (!p || cancelled) return;
+        // Dual-role accounts can switch to rider mode from elsewhere
+        // (the side menu, most commonly) — if that happened while this
+        // screen was still around (backgrounded, a stale deep link, a
+        // notification tap), don't let it keep acting as the driver
+        // screen; bounce to the rider side instead.
+        if (p.active_mode && p.active_mode !== "driver") {
+          // resetTo, not replace — this guard can trigger repeatedly as
+          // the rider backs through several stale driver screens still
+          // sitting in history from before they switched modes; replace
+          // alone only swaps the current one, so each back-press would
+          // just reveal the next driver screen underneath instead of
+          // actually leaving the driver portal for good.
+          resetTo("/(rider)/home");
+          return;
+        }
         setFirstName(p.first_name);
         if (p.vehicle_make || p.vehicle_model || p.license_plate) {
           setVehicle({
@@ -268,6 +285,13 @@ export default function DriverHome() {
     try {
       await acceptRide(rideId);
       router.replace({ pathname: "/(driver)/active-trip", params: { rideId } });
+      // Best-effort — places a hold on the rider's saved card if this
+      // ride is set to pay by card. Doesn't block navigating to the trip
+      // screen either way: no saved card, or a failed hold, just means
+      // payment happens the normal way (charge/checkout) at completion.
+      reserveRideCard(rideId).catch((e: any) => {
+        console.warn("[driver/home] reserveRideCard failed:", e?.message ?? e);
+      });
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to accept ride. It may have been taken by another driver.");
       setAccepting(null);
@@ -467,7 +491,7 @@ export default function DriverHome() {
         </View>
 
         {vehicle && (
-          <Pressable onPress={() => router.push("/(driver)/profile")}>
+          <Pressable onPress={() => navigateFromMenu("/(driver)/profile")}>
             <GlassCard style={styles.vehicleCard}>
               <View style={styles.vehicleIconWrap}>
                 <Ionicons name="car-sport" size={20} color={COLORS.red} />
@@ -651,7 +675,7 @@ export default function DriverHome() {
         {lastTrip && (
           <>
             <Text style={styles.sectionTitle}>Last trip</Text>
-            <Pressable onPress={() => router.push("/(driver)/trip-history")}>
+            <Pressable onPress={() => navigateFromMenu("/(driver)/trip-history")}>
               <GlassCard style={styles.lastTripCard}>
                 <View style={styles.lastTripTop}>
                   <Text style={styles.lastTripFare}>
@@ -672,12 +696,12 @@ export default function DriverHome() {
         )}
 
         <Text style={styles.sectionTitle}>Quick access</Text>
-        <RowItem icon="wallet-outline" title="Earnings" subtitle="Balance & payout history" onPress={() => router.push("/(driver)/wallet")} />
-        <RowItem icon="time-outline" title="Trip History" subtitle="Past rides & receipts" onPress={() => router.push("/(driver)/trip-history")} />
-        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Driver bonuses" onPress={() => router.push("/(driver)/promotions")} />
-        <RowItem icon="person-outline" title="Profile" subtitle="Personal & vehicle details" onPress={() => router.push("/(driver)/profile")} />
-        <RowItem icon="settings-outline" title="Settings" subtitle="Preferences & account" onPress={() => router.push("/(driver)/settings")} />
-        <RowItem icon="help-buoy-outline" title="Help & Support" subtitle="Get assistance" onPress={() => router.push("/(driver)/support")} />
+        <RowItem icon="wallet-outline" title="Earnings" subtitle="Balance & payout history" onPress={() => navigateFromMenu("/(driver)/wallet")} />
+        <RowItem icon="time-outline" title="Trip History" subtitle="Past rides & receipts" onPress={() => navigateFromMenu("/(driver)/trip-history")} />
+        <RowItem icon="pricetag-outline" title="Promotions" subtitle="Driver bonuses" onPress={() => navigateFromMenu("/(driver)/promotions")} />
+        <RowItem icon="person-outline" title="Profile" subtitle="Personal & vehicle details" onPress={() => navigateFromMenu("/(driver)/profile")} />
+        <RowItem icon="settings-outline" title="Settings" subtitle="Preferences & account" onPress={() => navigateFromMenu("/(driver)/settings")} />
+        <RowItem icon="help-buoy-outline" title="Help & Support" subtitle="Get assistance" onPress={() => navigateFromMenu("/(driver)/support")} />
       </ScrollView>
 
       <View style={styles.bottomBar}>

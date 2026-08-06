@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Pressable, TextInput,
-  FlatList, ActivityIndicator, ScrollView, Alert,
+  FlatList, ActivityIndicator, ScrollView, Alert, Linking,
 } from "react-native";
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline, Region } from "react-native-maps";
 import * as Location from "expo-location";
@@ -29,6 +29,11 @@ import {
 } from "../../src/lib/rides";
 import { updateMyLocation } from "../../src/lib/presence";
 import { haversineKm } from "../../src/lib/geo";
+import {
+  PaymentMethod, PAYMENT_METHOD_LABELS,
+  getPreferredPaymentMethod, setRidePaymentMethod,
+} from "../../src/lib/payments";
+import { isWhat3WordsAddress, convertToCoordinates, convertToWords, formatWhat3Words } from "../../src/lib/what3words";
 
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY as string;
 if (!GOOGLE_MAPS_API_KEY) {
@@ -52,8 +57,8 @@ const DEFAULT_CENTER: [number, number] = [28.0473, -26.2041];
 let placesApiConfirmedBlocked = false;
 
 type Step = "sheet" | "input_pickup" | "input_destination" | "pin" | "tiers" | "requesting";
-type LocationPoint = { label: string; address: string; lat: number; lng: number };
-type SearchResult = { id: string; name: string; address: string; lat: number; lng: number };
+type LocationPoint = { label: string; address: string; lat: number; lng: number; what3words?: string };
+type SearchResult = { id: string; name: string; address: string; lat: number; lng: number; what3words?: string };
 
 const TIERS: RideTier[] = ["economy", "comfort", "xl"];
 
@@ -65,6 +70,7 @@ export default function RiderHome() {
 
   // Location state
   const [currentLocation, setCurrentLocation] = useState<LocationPoint | null>(null);
+  const [locatingCurrent, setLocatingCurrent] = useState(false);
   const [pickup, setPickup] = useState<LocationPoint | null>(null);
   const [destination, setDestination] = useState<LocationPoint | null>(null);
   const [stops, setStops] = useState<LocationPoint[]>([]);
@@ -94,6 +100,8 @@ export default function RiderHome() {
   const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
   const [demandMultiplier] = useState(1.1);
   const [selectedTier, setSelectedTier] = useState<RideTier>("economy");
+  // Preselected from the rider's saved default; overridable per ride.
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   // Optional custom fare offer — set before tapping "Request Ride", so
   // negotiation starts the moment the ride is created rather than
   // requiring a separate step afterward.
@@ -122,7 +130,7 @@ export default function RiderHome() {
     return () => { cancelled = true; };
   }, []));
 
-  // Load GPS + saved places on mount
+  // Load GPS + saved places + preferred payment method on mount
   useEffect(() => {
     (async () => {
       try {
@@ -131,6 +139,12 @@ export default function RiderHome() {
           Location.requestForegroundPermissionsAsync(),
         ]);
         setSavedPlaces(places);
+
+        try {
+          setPaymentMethod(await getPreferredPaymentMethod());
+        } catch {
+          // non-critical — falls back to "cash"
+        }
 
         if (perm.status === "granted") {
           const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -266,6 +280,38 @@ export default function RiderHome() {
     const t = setTimeout(async () => {
       setSearching(true);
 
+      // A what3words address ("filled.count.soap" or
+      // "///filled.count.soap") isn't something Places or Geocoding can
+      // resolve — it's exact-but-arbitrary, not a real place name or
+      // street address. Detect it and go straight to the What3Words API
+      // instead. This is the main way this app supports precise
+      // locations in townships/informal settlements that have no
+      // reliable street addresses at all.
+      if (isWhat3WordsAddress(searchQuery)) {
+        try {
+          const w3w = await convertToCoordinates(searchQuery);
+          applyResults([{
+            id: "w3w",
+            name: formatWhat3Words(w3w.words),
+            address: w3w.nearestPlace ? `Near ${w3w.nearestPlace}` : `${w3w.lat.toFixed(5)}, ${w3w.lng.toFixed(5)}`,
+            lat: w3w.lat,
+            lng: w3w.lng,
+            what3words: w3w.words,
+          }]);
+        } catch (e: any) {
+          // Most commonly: the three words don't form a real w3w address
+          // (typo, or just not a what3words combination) — show nothing
+          // rather than a scary error; the rider can keep typing or fall
+          // back to search/drop-a-pin.
+          console.warn("[rider/home] what3words lookup failed:", e?.message ?? e);
+          setSearchResults([]);
+          setPreviewPoint(null);
+        } finally {
+          setSearching(false);
+        }
+        return;
+      }
+
       // Already confirmed blocked this session — skip straight to the
       // fallback instead of firing another doomed request + error log.
       if (placesApiConfirmedBlocked) {
@@ -371,7 +417,10 @@ export default function RiderHome() {
   };
 
   const confirmSearchResult = (result: SearchResult) => {
-    const point: LocationPoint = { label: result.name, address: result.address, lat: result.lat, lng: result.lng };
+    const point: LocationPoint = {
+      label: result.name, address: result.address, lat: result.lat, lng: result.lng,
+      what3words: result.what3words,
+    };
     if (addingStop) {
       setStops((prev) => [...prev, point]);
       setAddingStop(false);
@@ -415,18 +464,96 @@ export default function RiderHome() {
   };
 
   // Pin mode: user drags map, pin stays fixed in center
+  // "Current location" previously only ever came from the one silent GPS
+  // read on mount — if permission was denied then (or granted afterwards
+  // via Settings, or the read simply timed out), the option just quietly
+  // never appeared again with no way to retry short of restarting the
+  // app. This makes it available on demand instead: reuse the cached fix
+  // if we already have one, otherwise actually (re)request permission and
+  // fetch a fresh position right when the rider taps it.
+  const useCurrentLocationNow = async () => {
+    if (currentLocation) {
+      confirmSearchResult({
+        id: "cur", name: "Current location",
+        address: currentLocation.address, lat: currentLocation.lat, lng: currentLocation.lng,
+      });
+      return;
+    }
+    setLocatingCurrent(true);
+    try {
+      let perm = await Location.getForegroundPermissionsAsync();
+      if (perm.status !== "granted") {
+        perm = await Location.requestForegroundPermissionsAsync();
+      }
+      if (perm.status !== "granted") {
+        Alert.alert(
+          "Location access needed",
+          "RIDE needs location access to find your current spot. You can enable it in your phone's Settings.",
+          [
+            { text: "Not now", style: "cancel" },
+            { text: "Open Settings", onPress: () => Linking.openSettings().catch(() => {}) },
+          ]
+        );
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const addr = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+      const loc: LocationPoint = {
+        label: "Current location", address: addr,
+        lat: pos.coords.latitude, lng: pos.coords.longitude,
+      };
+      setCurrentLocation(loc);
+      confirmSearchResult({ id: "cur", name: "Current location", address: addr, lat: loc.lat, lng: loc.lng });
+    } catch (e: any) {
+      Alert.alert("Couldn't get your location", e?.message ?? "Please try again, or drop a pin on the map instead.");
+    } finally {
+      setLocatingCurrent(false);
+    }
+  };
+
   const startPinMode = (field: "pickup" | "destination") => {
     setActiveField(field);
     setStep("pin");
+    // Bug: pinCoords previously only got set inside onRegionChangeComplete,
+    // which only fires once the user actually pans the map. If the pin
+    // (fixed at screen center) already sits over the right spot when this
+    // opens, "Confirm Pin" stayed disabled with nothing visibly wrong —
+    // it looked placed, it just couldn't be confirmed. Read the map's
+    // current center immediately instead of waiting for a drag.
     setPinCoords(null);
+    mapRef.current?.getCamera()
+      .then((camera) => {
+        if (camera?.center) {
+          setPinCoords([camera.center.longitude, camera.center.latitude]);
+        }
+      })
+      .catch(() => {
+        // onRegionChangeComplete still covers this once they drag.
+      });
   };
 
   const confirmPin = async () => {
     if (!pinCoords) return;
     setGeocodingPin(true);
     try {
-      const addr = await reverseGeocode(pinCoords[1], pinCoords[0]);
-      const point: LocationPoint = { label: "Pinned location", address: addr, lat: pinCoords[1], lng: pinCoords[0] };
+      const [addr, w3w] = await Promise.all([
+        reverseGeocode(pinCoords[1], pinCoords[0]),
+        // Best-effort — reverse-geocoding already has its own coordinate
+        // fallback, so a failed w3w lookup here just means the point
+        // ships without a what3words tag, not a broken flow. This is
+        // often the most useful part of a pin drop in an area with no
+        // real street address: reverseGeocode may only return raw
+        // coordinates, but the what3words tag is still short, exact, and
+        // shareable.
+        convertToWords(pinCoords[1], pinCoords[0]).catch(() => null),
+      ]);
+      const point: LocationPoint = {
+        label: w3w ? formatWhat3Words(w3w.words) : "Pinned location",
+        address: addr,
+        lat: pinCoords[1],
+        lng: pinCoords[0],
+        what3words: w3w?.words,
+      };
       if (addingStop) {
         setStops((prev) => [...prev, point]);
         setAddingStop(false);
@@ -477,19 +604,30 @@ export default function RiderHome() {
     setStep("requesting");
     setRequesting(true);
     try {
+      // request_ride (and the rides table) has no dedicated what3words
+      // column — folding the tag into the address string is the
+      // simplest way to get it to persist and show up everywhere
+      // downstream (driver's active-trip screen, trip slip, chat)
+      // without a schema/RPC change. Put first, not appended: several
+      // screens truncate this string to one line, and the what3words
+      // tag is the part that matters most in an area with no real
+      // street address — it shouldn't be the part that gets cut off.
+      const addressWithW3W = (point: LocationPoint) =>
+        point.what3words ? `${formatWhat3Words(point.what3words)} · ${point.address}` : point.address;
+
       const commonParams = {
         pickupLabel: pickup.label,
-        pickupAddress: pickup.address,
+        pickupAddress: addressWithW3W(pickup),
         pickupLat: pickup.lat,
         pickupLng: pickup.lng,
         destinationLabel: destination.label,
-        destinationAddress: destination.address,
+        destinationAddress: addressWithW3W(destination),
         destinationLat: destination.lat,
         destinationLng: destination.lng,
         estimatedDistanceKm: estimatedDistance,
         estimatedDurationMin: estimatedDuration,
         rideTier: selectedTier,
-        stops: stops.map((s) => ({ label: s.label, address: s.address, lat: s.lat, lng: s.lng })),
+        stops: stops.map((s) => ({ label: s.label, address: addressWithW3W(s), lat: s.lat, lng: s.lng })),
       };
 
       if (scheduling && scheduledFor) {
@@ -503,6 +641,26 @@ export default function RiderHome() {
       }
 
       const ride = await requestRide(commonParams);
+
+      // The ride already defaults to the rider's saved payment
+      // preference server-side (via a DB trigger). This only needs to
+      // run when they picked something different just for this trip —
+      // but since a driver can accept (and, for card rides, trigger a
+      // fund reservation) at any moment after this, it retries once
+      // instead of silently giving up, so the ride doesn't end up
+      // charged against the wrong method.
+      if (paymentMethod !== ride.payment_method) {
+        try {
+          await setRidePaymentMethod(ride.id, paymentMethod);
+        } catch (e: any) {
+          console.warn("[rider/home] Couldn't set ride payment method, retrying once:", e?.message ?? e);
+          try {
+            await setRidePaymentMethod(ride.id, paymentMethod);
+          } catch (e2: any) {
+            console.warn("[rider/home] Retry also failed, ride will use the saved default:", e2?.message ?? e2);
+          }
+        }
+      }
 
       // If a custom fare was set before requesting, send it the moment the
       // ride exists — best-effort: if this fails, the rider can still
@@ -713,7 +871,7 @@ export default function RiderHome() {
               <Ionicons name="search-outline" size={16} color={COLORS.textFaint} />
               <TextInput
                 style={styles.searchInput}
-                placeholder={step === "input_pickup" ? "Search pickup location..." : addingStop ? "Search for a stop..." : "Search destination..."}
+                placeholder={step === "input_pickup" ? "Search pickup or ///what3words..." : addingStop ? "Search stop or ///what3words..." : "Search destination or ///what3words..."}
                 placeholderTextColor={COLORS.textFaint}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -721,6 +879,11 @@ export default function RiderHome() {
               />
               {searching && <ActivityIndicator size="small" color={COLORS.red} />}
             </View>
+            {searchQuery.length < 3 && (
+              <Text style={styles.w3wHint}>
+                No street address nearby? Try a what3words address, e.g. ///filled.count.soap
+              </Text>
+            )}
 
             {/* Pin option */}
             <Pressable style={styles.pinOption} onPress={() => startPinMode(activeField)}>
@@ -737,12 +900,22 @@ export default function RiderHome() {
               ListHeaderComponent={
                 searchQuery.length < 3 ? (
                   <View style={{ gap: 2 }}>
-                    {step === "input_pickup" && currentLocation && (
-                      <Pressable style={styles.suggestion} onPress={() => confirmSearchResult({ id: "cur", name: "Current location", address: currentLocation.address, lat: currentLocation.lat, lng: currentLocation.lng })}>
-                        <Ionicons name="navigate-outline" size={16} color={COLORS.red} />
+                    {step === "input_pickup" && (
+                      <Pressable
+                        style={styles.suggestion}
+                        disabled={locatingCurrent}
+                        onPress={useCurrentLocationNow}
+                      >
+                        {locatingCurrent ? (
+                          <ActivityIndicator size="small" color={COLORS.red} />
+                        ) : (
+                          <Ionicons name="navigate-outline" size={16} color={COLORS.red} />
+                        )}
                         <View style={{ flex: 1 }}>
                           <Text style={styles.suggestionName}>Current location</Text>
-                          <Text style={styles.suggestionAddr} numberOfLines={1}>{currentLocation.address}</Text>
+                          <Text style={styles.suggestionAddr} numberOfLines={1}>
+                            {locatingCurrent ? "Locating..." : currentLocation?.address ?? "Tap to use your GPS location"}
+                          </Text>
                         </View>
                       </Pressable>
                     )}
@@ -760,7 +933,7 @@ export default function RiderHome() {
               }
               renderItem={({ item }) => (
                 <Pressable style={styles.suggestion} onPress={() => confirmSearchResult(item)}>
-                  <Ionicons name="location-outline" size={16} color={COLORS.red} />
+                  <Ionicons name={item.what3words ? "grid-outline" : "location-outline"} size={16} color={COLORS.red} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.suggestionName}>{item.name}</Text>
                     <Text style={styles.suggestionAddr} numberOfLines={1}>{item.address}</Text>
@@ -795,7 +968,12 @@ export default function RiderHome() {
             {/* Trip summary */}
             <View style={styles.tripSummaryRow}>
               <View style={styles.dotPickup} />
-              <Text style={styles.tripSummaryTxt} numberOfLines={1}>{pickup.label}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.tripSummaryTxt} numberOfLines={1}>{pickup.label}</Text>
+                {pickup.what3words && (
+                  <Text style={styles.tripSummarySub} numberOfLines={1}>{pickup.address}</Text>
+                )}
+              </View>
             </View>
             {stops.map((stop, i) => (
               <View key={i} style={[styles.tripSummaryRow, { marginTop: 6 }]}>
@@ -808,7 +986,12 @@ export default function RiderHome() {
             ))}
             <View style={[styles.tripSummaryRow, { marginTop: 6 }]}>
               <Ionicons name="location" size={14} color={COLORS.red} />
-              <Text style={styles.tripSummaryTxt} numberOfLines={1}>{destination.label}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.tripSummaryTxt} numberOfLines={1}>{destination.label}</Text>
+                {destination.what3words && (
+                  <Text style={styles.tripSummarySub} numberOfLines={1}>{destination.address}</Text>
+                )}
+              </View>
             </View>
             {stops.length < 3 && (
               <Pressable
@@ -848,6 +1031,33 @@ export default function RiderHome() {
                       <Text style={styles.tierDesc}>{cfg.description}</Text>
                     </View>
                     <Text style={styles.tierFare}>{formatFare(fare)}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Payment method — defaults to the rider's saved preference,
+                overridable per ride. Shown before Request Ride so the
+                choice is made (or confirmed) before the ride is sent to
+                drivers, not after. */}
+            <Text style={styles.paymentLabel}>Payment method</Text>
+            <View style={styles.paymentRow}>
+              {(["cash", "wallet", "card"] as PaymentMethod[]).map((method) => {
+                const isSelected = paymentMethod === method;
+                return (
+                  <Pressable
+                    key={method}
+                    style={[styles.paymentChip, isSelected && styles.paymentChipSelected]}
+                    onPress={() => setPaymentMethod(method)}
+                  >
+                    <Ionicons
+                      name={method === "cash" ? "cash-outline" : method === "wallet" ? "wallet-outline" : "card-outline"}
+                      size={14}
+                      color={isSelected ? "#000" : COLORS.textDim}
+                    />
+                    <Text style={[styles.paymentChipTxt, isSelected && styles.paymentChipTxtSelected]}>
+                      {PAYMENT_METHOD_LABELS[method]}
+                    </Text>
                   </Pressable>
                 );
               })}
@@ -1078,11 +1288,30 @@ const styles = StyleSheet.create({
     color: COLORS.text, fontSize: 14,
   },
   makeOfferLink: { color: COLORS.red, fontWeight: "800", fontSize: 13, textAlign: "center" },
+  paymentLabel: { color: COLORS.textDim, fontSize: 12, fontWeight: "700", marginTop: SPACE.sm },
+  paymentRow: { flexDirection: "row", gap: 8, marginTop: 6 },
+  paymentChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  paymentChipSelected: { backgroundColor: COLORS.red, borderColor: COLORS.red },
+  paymentChipTxt: { color: COLORS.textDim, fontWeight: "800", fontSize: 12 },
+  paymentChipTxtSelected: { color: "#000" },
   cancelTxt: { color: COLORS.red, fontWeight: "700", fontSize: 14 },
 
   // Tier panel
   tripSummaryRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
   tripSummaryTxt: { flex: 1, color: COLORS.textDim, fontSize: 13 },
+  tripSummarySub: { color: COLORS.textFaint, fontSize: 11, marginTop: 1 },
+  w3wHint: { color: COLORS.textFaint, fontSize: 11, paddingHorizontal: 2, marginTop: -4 },
   addStopBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, alignSelf: "flex-start" },
   addStopTxt: { color: COLORS.red, fontWeight: "800", fontSize: 13 },
   scheduleToggle: {

@@ -16,6 +16,7 @@ import {
 import {
   RideOffer, getRideOffers, proposeOffer, respondToOffer,
 } from "../../src/lib/negotiation";
+import { reserveRideCard } from "../../src/lib/payments";
 
 export default function DriverRequestsScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -76,6 +77,9 @@ export default function DriverRequestsScreen() {
     try {
       await acceptRide(rideId);
       router.replace({ pathname: "/(driver)/active-trip", params: { rideId } });
+      reserveRideCard(rideId).catch((e: any) => {
+        console.warn("[driver/requests] reserveRideCard failed:", e?.message ?? e);
+      });
     } catch (e: any) {
       setError(e?.message ?? "Failed to accept ride.");
       setAccepting(null);

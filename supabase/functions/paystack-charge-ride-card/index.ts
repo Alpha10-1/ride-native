@@ -63,7 +63,10 @@ Deno.serve(async (req: Request) => {
 
     const { data: ride, error: rideError } = await adminClient
       .from("rides")
-      .select("id, rider_id, driver_id, status, payment_method, payment_status, final_fare_cents")
+      .select(
+        "id, rider_id, driver_id, status, payment_method, payment_status, final_fare_cents, " +
+        "card_reservation_status, card_reservation_reference, card_reservation_amount_cents"
+      )
       .eq("id", rideId)
       .maybeSingle();
 
@@ -90,6 +93,134 @@ Deno.serve(async (req: Request) => {
     if (amountCents <= 0) {
       await adminClient.from("rides").update({ payment_status: "paid" }).eq("id", rideId);
       return new Response(JSON.stringify({ ok: true, amount_cents: 0 }), { status: 200 });
+    }
+
+    // If accept-time reserved a hold on the rider's card, capture that
+    // instead of doing a brand-new charge. Paystack can only capture up
+    // to the amount that was held, so if the final fare ended up higher
+    // than the estimate that was reserved (e.g. a longer route, surge
+    // that changed mid-trip), capture the full hold and charge the
+    // shortfall as a normal follow-up charge_authorization.
+    if (ride.card_reservation_status === "reserved" && ride.card_reservation_reference) {
+      if (!PAYSTACK_SECRET_KEY) {
+        console.error("paystack-charge-ride-card: PAYSTACK_SECRET_KEY is empty/unset");
+        return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500 });
+      }
+
+      const heldAmount = ride.card_reservation_amount_cents ?? amountCents;
+      const captureAmount = Math.min(amountCents, heldAmount);
+      const shortfall = amountCents - captureAmount;
+
+      try {
+        const captureRes = await fetch("https://api.paystack.co/preauthorization/capture", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            reference: ride.card_reservation_reference,
+            currency: "ZAR",
+            amount: captureAmount,
+          }),
+        });
+        const captureData: any = await captureRes.json();
+        const captureStatus = captureData?.data?.status; // 'success' on success
+
+        console.log(`paystack-charge-ride-card: capture ride=${rideId} response status=${captureRes.status} paystack_status=${captureStatus}`);
+
+        if (captureRes.ok && captureData.status && captureStatus === "success") {
+          await adminClient
+            .from("ride_payments")
+            .update({
+              status: "success",
+              paystack_transaction_id: captureData.data?.id != null ? String(captureData.data.id) : null,
+              paid_at: new Date().toISOString(),
+            })
+            .eq("paystack_reference", ride.card_reservation_reference);
+          await adminClient
+            .from("rides")
+            .update({ card_reservation_status: "captured" })
+            .eq("id", rideId);
+
+          if (shortfall > 0) {
+            // Best-effort — the hold covered most of it; a failure here
+            // still leaves the ride correctly marked paid for the
+            // captured portion rather than blocking the rider/driver.
+            const { data: card } = await adminClient
+              .from("rider_cards")
+              .select("paystack_authorization_code")
+              .eq("rider_id", ride.rider_id)
+              .eq("is_default", true)
+              .maybeSingle();
+            if (card?.paystack_authorization_code) {
+              const { data: profile } = await adminClient
+                .from("profiles")
+                .select("email")
+                .eq("id", ride.rider_id)
+                .single();
+              const email = profile?.email || `${ride.rider_id}@ridenative.internal`;
+              const shortfallRef = `ridepay_${rideId}_shortfall_${Date.now()}`;
+              await adminClient.from("ride_payments").insert({
+                ride_id: rideId,
+                rider_id: ride.rider_id,
+                amount_cents: shortfall,
+                currency: "ZAR",
+                status: "pending",
+                kind: "charge",
+                paystack_reference: shortfallRef,
+              });
+              try {
+                const shortfallRes = await fetch("https://api.paystack.co/transaction/charge_authorization", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    authorization_code: card.paystack_authorization_code,
+                    email,
+                    amount: shortfall,
+                    currency: "ZAR",
+                    reference: shortfallRef,
+                    metadata: { ride_id: rideId, rider_id: ride.rider_id, purpose: "ride_card_shortfall" },
+                  }),
+                });
+                const shortfallData: any = await shortfallRes.json();
+                if (shortfallRes.ok && shortfallData.status && shortfallData?.data?.status === "success") {
+                  await adminClient.from("ride_payments").update({
+                    status: "success",
+                    paystack_transaction_id: shortfallData.data?.id != null ? String(shortfallData.data.id) : null,
+                    paid_at: new Date().toISOString(),
+                  }).eq("paystack_reference", shortfallRef);
+                } else {
+                  await adminClient.from("ride_payments").update({
+                    status: "failed",
+                    failure_reason: shortfallData?.data?.gateway_response ?? shortfallData?.message ?? "Shortfall charge failed.",
+                  }).eq("paystack_reference", shortfallRef);
+                }
+              } catch (shortfallErr) {
+                console.error("paystack-charge-ride-card: shortfall charge failed", String(shortfallErr));
+              }
+            }
+          }
+
+          await adminClient.from("rides").update({ payment_status: "paid" }).eq("id", rideId);
+          return new Response(JSON.stringify({ ok: true, amount_cents: amountCents, captured_via: "reservation" }), { status: 200 });
+        }
+
+        const captureFailure = captureData?.data?.gateway_response ?? captureData?.message ?? "Capture failed.";
+        await adminClient
+          .from("ride_payments")
+          .update({ status: "failed", failure_reason: captureFailure })
+          .eq("paystack_reference", ride.card_reservation_reference);
+        await adminClient.from("rides").update({ card_reservation_status: "failed" }).eq("id", rideId);
+        // Fall through to a normal fresh charge attempt below, in case
+        // the hold expired or was declined for some other reason.
+      } catch (captureErr) {
+        console.error("paystack-charge-ride-card: capture fetch failed", String(captureErr));
+        // Fall through to the normal charge flow below.
+      }
     }
 
     const { data: card, error: cardError } = await adminClient

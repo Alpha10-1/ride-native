@@ -58,13 +58,16 @@ export default function SpendingReportScreen() {
     setExporting(true);
     try {
       const { start } = getPeriodBounds(period, anchor);
-      await exportSpendingReportPdf({
+      const { savedToDevice } = await exportSpendingReportPdf({
         riderName,
         period,
         periodLabel: formatPeriodLabel(period, anchor),
         periodStart: start,
         trips,
       });
+      if (savedToDevice) {
+        Alert.alert("Report saved", "Saved to the folder you chose — check your Files app or Downloads.");
+      }
     } catch (e: any) {
       Alert.alert("Couldn't export report", e?.message ?? "Please try again.");
     } finally {

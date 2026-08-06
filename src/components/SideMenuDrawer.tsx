@@ -11,13 +11,12 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
 
 import RowItem from "./RowItem";
 import { COLORS, RADIUS, SPACE } from "../theme/tokens";
 import { logout } from "../lib/auth";
 import { getMyDriverStatus, applyToDrive, switchActiveMode } from "../lib/driverApplication";
-import { resetTo } from "../lib/navigation";
+import { resetTo, navigateFromMenu } from "../lib/navigation";
 
 function BecomeDriverBanner({ onPress }: { onPress: () => void }) {
   return (
@@ -186,7 +185,7 @@ export default function SideMenuDrawer({
             icon="person-outline"
             onPress={() => {
               onClose();
-              router.push(`${base}/profile`);
+              navigateFromMenu(`${base}/profile`);
             }}
           />
 
@@ -245,7 +244,7 @@ export default function SideMenuDrawer({
             icon="pricetag-outline"
             onPress={() => {
               onClose();
-              router.push(`${base}/promotions`);
+              navigateFromMenu(`${base}/promotions`);
             }}
           />
 
@@ -255,7 +254,7 @@ export default function SideMenuDrawer({
             icon="time-outline"
             onPress={() => {
               onClose();
-              router.push(`${base}/trip-history`);
+              navigateFromMenu(`${base}/trip-history`);
             }}
           />
 
@@ -266,7 +265,7 @@ export default function SideMenuDrawer({
             icon="wallet-outline"
             onPress={() => {
               onClose();
-              router.push(`${base}/wallet`);
+              navigateFromMenu(`${base}/wallet`);
             }}
           />
 
@@ -277,7 +276,7 @@ export default function SideMenuDrawer({
               icon="card-outline"
               onPress={() => {
                 onClose();
-                router.push("/(rider)/payment-methods");
+                navigateFromMenu("/(rider)/payment-methods");
               }}
             />
           )}
@@ -288,7 +287,7 @@ export default function SideMenuDrawer({
             icon="settings-outline"
             onPress={() => {
               onClose();
-              router.push(`${base}/settings`);
+              navigateFromMenu(`${base}/settings`);
             }}
           />
 
@@ -298,7 +297,17 @@ export default function SideMenuDrawer({
             icon="help-circle-outline"
             onPress={() => {
               onClose();
-              router.push(`${base}/support`);
+              navigateFromMenu(`${base}/support`);
+            }}
+          />
+
+          <RowItem
+            title="Support Chat"
+            subtitle="Message our support team"
+            icon="chatbubble-ellipses-outline"
+            onPress={() => {
+              onClose();
+              navigateFromMenu(`${base}/support-chat`);
             }}
           />
 

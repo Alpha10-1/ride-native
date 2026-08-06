@@ -8,6 +8,8 @@ import RiderHeader from "../../src/components/RiderHeader";
 import GlassCard from "../../src/components/GlassCard";
 import RowItem from "../../src/components/RowItem";
 import { COLORS, SPACE } from "../../src/theme/tokens";
+import { logout } from "../../src/lib/auth";
+import { resetTo } from "../../src/lib/navigation";
 
 export default function DriverSettings() {
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -61,7 +63,7 @@ export default function DriverSettings() {
           title="Log out"
           subtitle="Sign out of your account"
           danger
-          onPress={() => router.replace("/auth/login")}
+          onPress={() => logout().finally(() => resetTo("/auth/login"))}
         />
       </ScrollView>
       <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="driver" />

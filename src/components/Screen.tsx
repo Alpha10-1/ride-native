@@ -1,5 +1,5 @@
 import React from "react";
-import { View, StyleSheet, StatusBar, Platform } from "react-native";
+import { View, StyleSheet, StatusBar, Platform, KeyboardAvoidingView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { COLORS } from "../theme/tokens";
 
@@ -11,7 +11,20 @@ export default function Screen({ children }: { children: React.ReactNode }) {
       <StatusBar barStyle="light-content" />
       <View style={styles.glowTop} />
       <View style={styles.glowBottom} />
-      <View style={styles.body}>{children}</View>
+      {/* Every screen with a text input gets keyboard-avoidance for free
+          from here — previously only ChatThread.tsx handled this itself,
+          so every form (login, register, profile, banking details,
+          promo codes, safety contacts...) had the keyboard just cover
+          whatever the person was typing into, with no way to see it.
+          "padding" on iOS shrinks this View to make room; "height" on
+          Android does the same — plain adjustResize isn't reliable once
+          edgeToEdgeEnabled draws the app behind the system bars. */}
+      <KeyboardAvoidingView
+        style={styles.body}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        {children}
+      </KeyboardAvoidingView>
     </Container>
   );
 }

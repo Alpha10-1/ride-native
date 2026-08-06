@@ -9,6 +9,7 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import PulsingDot from "../../src/components/PulsingDot";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { bearing } from "../../src/lib/geo";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
@@ -22,6 +23,7 @@ import {
   RideOffer, OfferThread, getRideOffers, proposeOffer, respondToOffer,
   subscribeToRideOffers, groupOffersByDriver, getProfileName,
 } from "../../src/lib/negotiation";
+import { releaseRideCardReservation } from "../../src/lib/payments";
 
 const DRIVER_MOVE_DURATION_MS = 900;
 
@@ -266,6 +268,9 @@ export default function RideTrackingScreen() {
             setCancelling(true);
             try {
               await cancelRide(rideId!);
+              releaseRideCardReservation(rideId!).catch((e: any) => {
+                console.warn("[rider/ride-tracking] releaseRideCardReservation failed:", e?.message ?? e);
+              });
               router.replace("/(rider)/home");
             } catch (e: any) {
               Alert.alert("Error", e?.message ?? "Failed to cancel.");
@@ -360,6 +365,7 @@ export default function RideTrackingScreen() {
         </MapView>
 
         <SOSFab rideId={ride.id} role="rider" />
+        <SupportChatFab role="rider" bottom={280} />
 
         {/* Status panel */}
         <View style={styles.panel}>

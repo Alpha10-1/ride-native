@@ -8,6 +8,7 @@ import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
@@ -16,6 +17,7 @@ import {
   updateDriverLocation, formatFare, statusLabel,
   RideStop, getRideStops, markStopReached,
 } from "../../src/lib/rides";
+import { settleRidePayment, chargeRideCard, releaseRideCardReservation } from "../../src/lib/payments";
 
 // Simulates the driver moving from pickup toward destination in small steps.
 // Returns an array of [lng, lat] waypoints interpolated between two points.
@@ -260,6 +262,25 @@ export default function ActiveTripScreen() {
         ride.estimated_distance_km ?? 5,
         durationMin
       );
+
+      // Settle the fare right away — cash/wallet resolve instantly
+      // server-side. Card only gets marked 'pending' by settleRidePayment;
+      // if the rider already has a saved card, try a one-tap charge here
+      // too so the driver isn't left waiting on the rider to open a
+      // checkout. Any failure here shouldn't block the driver from
+      // seeing their trip summary — the rider's ride-complete screen
+      // (or a saved-card retry) can still resolve it afterward.
+      try {
+        const settlement = await settleRidePayment(ride.id);
+        if (settlement.paymentStatus === "pending" && settlement.method === "card") {
+          await chargeRideCard(ride.id).catch((e: any) =>
+            console.warn("[driver/active-trip] Card charge attempt failed:", e?.message ?? e)
+          );
+        }
+      } catch (e: any) {
+        console.warn("[driver/active-trip] Couldn't settle ride payment:", e?.message ?? e);
+      }
+
       router.replace({ pathname: "/(driver)/trip-complete", params: { rideId: ride.id } });
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "Failed to complete ride.");
@@ -278,6 +299,9 @@ export default function ActiveTripScreen() {
           setActionLoading(true);
           try {
             await cancelRide(ride!.id);
+            releaseRideCardReservation(ride!.id).catch((e: any) => {
+              console.warn("[driver/active-trip] releaseRideCardReservation failed:", e?.message ?? e);
+            });
             router.replace("/(driver)/home");
           } catch (e: any) {
             Alert.alert("Error", e?.message ?? "Failed to cancel.");
@@ -355,6 +379,7 @@ export default function ActiveTripScreen() {
         </MapView>
 
         <SOSFab rideId={ride.id} role="driver" />
+        <SupportChatFab role="driver" bottom={280} />
 
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>
@@ -363,6 +388,37 @@ export default function ActiveTripScreen() {
               <Text style={styles.fareText}>Est. {formatFare(ride.estimated_fare_cents)}</Text>
             ) : null}
           </GlassCard>
+
+          {ride.payment_method === "card" && ride.card_reservation_status !== "none" && (
+            <GlassCard style={styles.reservationCard}>
+              <Ionicons
+                name={
+                  ride.card_reservation_status === "reserved" || ride.card_reservation_status === "captured"
+                    ? "checkmark-circle"
+                    : ride.card_reservation_status === "failed"
+                    ? "alert-circle"
+                    : "time-outline"
+                }
+                size={16}
+                color={
+                  ride.card_reservation_status === "reserved" || ride.card_reservation_status === "captured"
+                    ? "#4ade80"
+                    : ride.card_reservation_status === "failed"
+                    ? "#ffb020"
+                    : COLORS.textDim
+                }
+              />
+              <Text style={styles.reservationText}>
+                {ride.card_reservation_status === "pending" && "Placing hold on rider's card…"}
+                {ride.card_reservation_status === "reserved" &&
+                  `Fare held on rider's card${ride.card_reservation_amount_cents ? ` (${formatFare(ride.card_reservation_amount_cents)})` : ""}`}
+                {ride.card_reservation_status === "captured" && "Fare captured — paid"}
+                {ride.card_reservation_status === "released" && "Card hold released"}
+                {ride.card_reservation_status === "failed" &&
+                  "No hold placed — will charge the rider's card at drop-off"}
+              </Text>
+            </GlassCard>
+          )}
 
           {stops.length > 0 && ride.status === "in_progress" && (
             <GlassCard style={{ gap: 10 }}>
@@ -478,6 +534,14 @@ const styles = StyleSheet.create({
   statusCard: { alignItems: "center", paddingVertical: SPACE.md },
   statusText: { color: COLORS.text, fontWeight: "900", fontSize: 18 },
   fareText: { color: COLORS.textDim, fontSize: 13, marginTop: 4 },
+  reservationCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: SPACE.sm,
+    paddingHorizontal: SPACE.md,
+  },
+  reservationText: { color: COLORS.textDim, fontSize: 12, fontWeight: "700", flex: 1 },
   locationBlock: { gap: 4 },
   locationRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
   navRow: { flexDirection: "row", gap: SPACE.sm },

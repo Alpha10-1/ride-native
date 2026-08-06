@@ -143,6 +143,32 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
 
+    if (event.event === "preauthorization.reserve.success") {
+      const data = event.data;
+      const purpose = data.metadata?.purpose as string | undefined;
+      if (purpose === "card_verification") {
+        return await handleCardVerificationReserved(adminClient, data);
+      }
+      // Ride fund reservations (purpose "ride_card_reservation") get
+      // their synchronous response handled directly in
+      // paystack-reserve-ride-card and don't need this webhook — ignore.
+      return new Response(JSON.stringify({ ok: true, ignored: "not a recognized preauthorization purpose" }), { status: 200 });
+    }
+
+    if (event.event === "preauthorization.reserve.failed") {
+      const data = event.data;
+      const purpose = data.metadata?.purpose as string | undefined;
+      if (purpose === "card_verification") {
+        const reason = data.gateway_response ?? data.message ?? "Card verification failed.";
+        await adminClient
+          .from("rider_card_verifications")
+          .update({ status: "failed", failure_reason: reason })
+          .eq("paystack_reference", data.reference)
+          .eq("status", "pending");
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+
     if (event.event === "charge.failed") {
       const data = event.data;
       const reference = data.reference as string;
@@ -195,6 +221,35 @@ Deno.serve(async (req: Request) => {
   }
 });
 
+// Saves/promotes a card as the rider's default for one-tap future charges,
+// but only if Paystack marked the authorization reusable — a non-reusable
+// instrument (e.g. certain digital-wallet channels) can't be charged again
+// later, so saving it would just produce a card that silently fails at
+// charge time. Shared by every flow that can produce a fresh card
+// authorization: ride checkout payments, wallet top-ups, and card
+// verification.
+async function saveRiderCardIfReusable(adminClient: any, riderId: string, authorization: any): Promise<void> {
+  if (!authorization?.authorization_code || !authorization?.reusable) return;
+
+  // Only one default card per rider — unset any previous default before
+  // inserting/promoting this one, so paystack-charge-ride-card's
+  // "is_default = true" lookup stays unambiguous.
+  await adminClient.from("rider_cards").update({ is_default: false }).eq("rider_id", riderId);
+
+  await adminClient.from("rider_cards").upsert(
+    {
+      rider_id: riderId,
+      paystack_authorization_code: authorization.authorization_code,
+      card_last4: authorization.last4 ?? null,
+      card_brand: authorization.card_type ?? authorization.brand ?? null,
+      card_exp_month: authorization.exp_month ?? null,
+      card_exp_year: authorization.exp_year ?? null,
+      is_default: true,
+    },
+    { onConflict: "rider_id,paystack_authorization_code" }
+  );
+}
+
 // Credits a rider's wallet after a real-money top-up succeeds. Uses the
 // credit_wallet_topup() RPC (service-role only) so the balance update and
 // the wallet_transactions row happen atomically under a row lock, instead
@@ -243,8 +298,80 @@ async function handleWalletTopupSuccess(adminClient: any, data: any): Promise<Re
     })
     .eq("paystack_reference", reference);
 
+  // Bug fix: this branch previously never saved the card at all, even
+  // though a top-up is a real card charge same as any other — a rider
+  // topping up with a new card had no way to end up with it saved for
+  // ride payments later.
+  await saveRiderCardIfReusable(adminClient, riderId, data.authorization ?? {});
+
   return new Response(JSON.stringify({ ok: true }), { status: 200 });
 }
+
+// Confirms a card-verification hold (paystack-initialize-card-verification)
+// succeeded: saves the card, then immediately releases the hold so no
+// money is ever actually taken — this is the entire point of using a
+// preauthorization here instead of a real charge.
+async function handleCardVerificationReserved(adminClient: any, data: any): Promise<Response> {
+  const reference = data.reference as string;
+  const riderId = data.metadata?.rider_id as string | undefined;
+  if (!riderId) {
+    return new Response(JSON.stringify({ skipped: "card_verification event missing rider_id" }), { status: 200 });
+  }
+
+  const { data: verificationRow, error: fetchError } = await adminClient
+    .from("rider_card_verifications")
+    .select("*")
+    .eq("paystack_reference", reference)
+    .maybeSingle();
+
+  if (fetchError) {
+    return new Response(JSON.stringify({ error: fetchError.message }), { status: 500 });
+  }
+  // Idempotency: Paystack can and does retry webhook delivery.
+  if (verificationRow?.status === "success" || verificationRow?.status === "released") {
+    return new Response(JSON.stringify({ ok: true, already_processed: true }), { status: 200 });
+  }
+
+  await adminClient
+    .from("rider_card_verifications")
+    .update({
+      status: "success",
+      paystack_transaction_id: data.id != null ? String(data.id) : null,
+      verified_at: new Date().toISOString(),
+    })
+    .eq("paystack_reference", reference);
+
+  await saveRiderCardIfReusable(adminClient, riderId, data.authorization ?? {});
+
+  // Best-effort: even if this fails, the hold auto-releases on its own
+  // via expire_action/expire_after_days set when it was initialized — the
+  // card is already saved either way, which is what actually matters to
+  // the rider.
+  try {
+    const res = await fetch("https://api.paystack.co/preauthorization/release", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reference }),
+    });
+    if (res.ok) {
+      await adminClient
+        .from("rider_card_verifications")
+        .update({ status: "released" })
+        .eq("paystack_reference", reference);
+    } else {
+      console.error("paystack-webhook: card verification release did not confirm", await res.text());
+    }
+  } catch (releaseErr) {
+    console.error("paystack-webhook: card verification release fetch failed", String(releaseErr));
+  }
+
+  return new Response(JSON.stringify({ ok: true }), { status: 200 });
+}
+
+
 
 // Marks a ride paid after a rider completes a fresh Paystack checkout for
 // the fare (paystack-initialize-ride-checkout — used when they had no
@@ -289,29 +416,7 @@ async function handleRideCardPaymentSuccess(adminClient: any, data: any): Promis
     .eq("payment_reference", reference);
 
   const authorization = data.authorization ?? {};
-  if (authorization.authorization_code && authorization.reusable) {
-    // Only one default card per rider — unset any previous default
-    // before inserting/promoting this one, so
-    // paystack-charge-ride-card's "is_default = true" lookup stays
-    // unambiguous.
-    await adminClient
-      .from("rider_cards")
-      .update({ is_default: false })
-      .eq("rider_id", riderId);
-
-    await adminClient.from("rider_cards").upsert(
-      {
-        rider_id: riderId,
-        paystack_authorization_code: authorization.authorization_code,
-        card_last4: authorization.last4 ?? null,
-        card_brand: authorization.card_type ?? authorization.brand ?? null,
-        card_exp_month: authorization.exp_month ?? null,
-        card_exp_year: authorization.exp_year ?? null,
-        is_default: true,
-      },
-      { onConflict: "rider_id,paystack_authorization_code" }
-    );
-  }
+  await saveRiderCardIfReusable(adminClient, riderId, authorization);
 
   return new Response(JSON.stringify({ ok: true }), { status: 200 });
 }

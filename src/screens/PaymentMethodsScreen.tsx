@@ -23,8 +23,8 @@ import {
   getMyBankDetails,
   updateBankDetails,
   clearBankDetails,
+  startCardVerification,
 } from "../../src/lib/payments";
-import { startWalletTopUp } from "../../src/lib/wallet";
 
 const METHODS: { key: PaymentMethod; icon: keyof typeof Ionicons.glyphMap; description: string }[] = [
   { key: "cash", icon: "cash-outline", description: "Pay your driver directly at the end of the trip" },
@@ -135,15 +135,16 @@ export default function PaymentMethodsScreen() {
     ]);
   };
 
-  // A saved card only exists after a successful card ride payment or
-  // wallet top-up checkout — there's no separate "verify a card" flow
-  // here, so this opens a small top-up (the least the rider can commit
-  // to) purely so a real card gets saved via the checkout webhook.
+  // Places a real hold on a nominal amount via Paystack Preauthorization
+  // and releases it the moment it's confirmed (see
+  // paystack-initialize-card-verification + the webhook) — the card gets
+  // verified and saved for future ride payments, but nothing is ever
+  // actually charged.
   const handleAddCard = async () => {
     setSaving(true);
     setError(null);
     try {
-      const { authorizationUrl } = await startWalletTopUp(1000); // R10 minimum
+      const { authorizationUrl } = await startCardVerification();
       const result = await WebBrowser.openAuthSessionAsync(authorizationUrl);
       if (result.type === "success" || result.type === "cancel" || result.type === "dismiss") {
         await load();

@@ -26,3 +26,26 @@ export function resetTo(href: string) {
   }
   router.replace(href as any);
 }
+
+// The side menu is reachable from basically every screen, and every menu
+// item (Settings, Profile, Wallet, Payment Methods, ...) is conceptually a
+// sibling "section" branching off Home — not a child of whatever screen
+// happened to have the menu open. Plain router.push() doesn't know that:
+// Home -> Profile -> (open menu) -> Settings just stacks Settings on top
+// of Profile, so back from Settings lands on Profile, and repeating this
+// from screen to screen is exactly the "back behaves like browser
+// history" complaint.
+//
+// dismissAll() pops the stack down to its root — which is reliably the
+// current role's home screen, since resetTo() is what always lands the
+// app there in the first place (after login and after any rider/driver
+// mode switch). Doing that before the push means every menu destination
+// ends up exactly one level below Home, however deep the stack had
+// gotten beforehand, so back from any of them always goes straight to
+// Home — matching how a normal app's navigation drawer behaves.
+export function navigateFromMenu(href: string) {
+  if (router.canGoBack()) {
+    router.dismissAll();
+  }
+  router.push(href as any);
+}

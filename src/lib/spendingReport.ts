@@ -47,10 +47,11 @@ export function summarizeSpending(trips: SpendingTrip[]): SpendingSummary {
   );
 }
 
-// Builds a printable HTML spending report and hands it to expo-print,
-// then opens the OS share sheet — same on-device generate-and-share
-// approach as the driver statement (src/lib/statements.ts), and reuses
-// the same branded template so both documents look consistent.
+// Builds a printable HTML spending report, hands it to expo-print, then
+// saves it to a persistent, user-visible location on the device (see
+// pdfSave.ts) — falling back to the OS share sheet if that's not
+// possible. Reuses the same branded template as the driver statement
+// (src/lib/statements.ts) so both documents look consistent.
 export async function exportSpendingReportPdf(params: {
   riderName: string;
   period: StatementPeriod;
@@ -59,7 +60,6 @@ export async function exportSpendingReportPdf(params: {
   trips: SpendingTrip[];
 }) {
   const Print = await import("expo-print");
-  const Sharing = await import("expo-sharing");
   const { brandStyles, brandHeader, brandFooter, makeDocRef } = await import("./pdfBranding");
 
   const summary = summarizeSpending(params.trips);
@@ -126,9 +126,8 @@ export async function exportSpendingReportPdf(params: {
   `;
 
   const { uri } = await Print.printToFileAsync({ html });
-  const canShare = await Sharing.isAvailableAsync();
-  if (canShare) {
-    await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Spending Report" });
-  }
-  return uri;
+  const filename = `RIDE-SpendingReport-${docRef}.pdf`;
+  const { saveOrSharePdf } = await import("./pdfSave");
+  const { savedToDevice } = await saveOrSharePdf(uri, filename, "Spending Report");
+  return { uri, savedToDevice };
 }

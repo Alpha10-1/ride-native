@@ -9,6 +9,7 @@ import GlassCard from "../../src/components/GlassCard";
 import RowItem from "../../src/components/RowItem";
 import { COLORS, SPACE } from "../../src/theme/tokens";
 import { logout } from "../../src/lib/auth";
+import { resetTo } from "../../src/lib/navigation";
 
 // NOTE: this screen previously duplicated the driver settings screen
 // (vehicle details, earnings, payout method, driver promotions, and a
@@ -39,12 +40,14 @@ export default function RiderSettings() {
         <Text style={styles.section}>Account</Text>
         <RowItem icon="person-outline" title="Profile" subtitle="Name, email, photo" onPress={() => router.push("/(rider)/profile")} />
         <RowItem icon="wallet-outline" title="Payment" subtitle="Balance & top-up" onPress={() => router.push("/(rider)/wallet")} />
+        <RowItem icon="card-outline" title="Payment Methods" subtitle="Wallet, card, cash, banking" onPress={() => router.push("/(rider)/payment-methods")} />
         <RowItem icon="location-outline" title="Saved Places" subtitle="Home, work, favourites" onPress={() => router.push("/(rider)/saved-places")} />
         <RowItem icon="pricetag-outline" title="Promotions" subtitle="Offers & promo codes" onPress={() => router.push("/(rider)/promotions")} />
 
         <Text style={styles.section}>Trips</Text>
         <RowItem icon="calendar-outline" title="Scheduled Rides" subtitle="Upcoming bookings" onPress={() => router.push("/(rider)/scheduled-rides")} />
         <RowItem icon="time-outline" title="Trip History" subtitle="Past rides & receipts" onPress={() => router.push("/(rider)/trip-history")} />
+        <RowItem icon="document-text-outline" title="Spending Report" subtitle="Weekly & monthly PDF" onPress={() => router.push("/(rider)/spending-report")} />
 
         <Text style={styles.section}>Safety</Text>
         <RowItem icon="shield-outline" title="Safety tools" subtitle="Emergency contacts, SOS" onPress={() => router.push("/(rider)/safety")} />
@@ -63,7 +66,7 @@ export default function RiderSettings() {
           title="Log out"
           subtitle="Sign out of your account"
           danger
-          onPress={() => logout().finally(() => router.replace("/auth/login"))}
+          onPress={() => logout().finally(() => resetTo("/auth/login"))}
         />
       </ScrollView>
       <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />
