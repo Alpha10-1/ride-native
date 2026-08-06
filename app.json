@@ -57,7 +57,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      "./plugins/withHmsCore"
     ],
     "extra": {
       "eas": {

@@ -1,0 +1,2564 @@
+diff --git a/app.json b/app.json
+index c0d544c..91f4138 100644
+--- a/app.json
++++ b/app.json
+@@ -57,7 +57,8 @@
+           "resizeMode": "contain",
+           "backgroundColor": "#000000"
+         }
+-      ]
++      ],
++      "./plugins/withHmsCore"
+     ],
+     "extra": {
+       "eas": {
+diff --git a/app/(driver)/active-trip.tsx b/app/(driver)/active-trip.tsx
+index 3cf95d7..05c11ae 100644
+--- a/app/(driver)/active-trip.tsx
++++ b/app/(driver)/active-trip.tsx
+@@ -1,6 +1,7 @@
+ import React, { useEffect, useRef, useState } from "react";
+ import { View, Text, StyleSheet, Alert, Linking, Pressable } from "react-native";
+ import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
++import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
+ import { Ionicons } from "@expo/vector-icons";
+ import { router, useLocalSearchParams } from "expo-router";
+ 
+@@ -11,17 +12,15 @@ import SOSFab from "../../src/components/SOSFab";
+ import SupportChatFab from "../../src/components/SupportChatFab";
+ import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
+ import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
++import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
++import { PINS, stopPin } from "../../src/components/map/pins";
+ import {
+   Ride, getRideById, subscribeToRide,
+   advanceRideStatus, completeRide, cancelRide,
+   updateDriverLocation, formatFare, statusLabel,
+   RideStop, getRideStops, markStopReached,
+ } from "../../src/lib/rides";
+-<<<<<<< HEAD
+ import { settleRidePayment, chargeRideCard, releaseRideCardReservation } from "../../src/lib/payments";
+-=======
+-import { settleRidePayment, chargeRideCard } from "../../src/lib/payments";
+->>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
+ 
+ // Simulates the driver moving from pickup toward destination in small steps.
+ // Returns an array of [lng, lat] waypoints interpolated between two points.
+@@ -44,6 +43,7 @@ function interpolateWaypoints(
+ export default function ActiveTripScreen() {
+   const { rideId } = useLocalSearchParams<{ rideId: string }>();
+   const mapRef = useRef<MapView>(null);
++  const mobileServiceProvider = useMobileServiceProvider();
+   const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
+ 
+   const [ride, setRide] = useState<Ride | null>(null);
+@@ -355,32 +355,62 @@ export default function ActiveTripScreen() {
+   return (
+     <Screen>
+       <View style={styles.root}>
+-        <MapView
+-          ref={mapRef}
+-          provider={PROVIDER_GOOGLE}
+-          style={StyleSheet.absoluteFill}
+-          initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
+-        >
+-          <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
+-            <View style={styles.markerPickup}>
+-              <Ionicons name="ellipse" size={10} color="#000" />
+-            </View>
+-          </Marker>
+-
+-          {stops.map((stop, i) => (
+-            <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
+-              <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
+-                <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
++        {mobileServiceProvider === "hms" ? (
++          // HMS Map Kit (Huawei/Honor devices without Google Play
++          // Services — see src/lib/mobileServices.ts). Not build-tested
++          // against real HMS Core hardware; verify prop names once
++          // @hmscore/react-native-hms-map is installed.
++          <HMSMap
++            style={StyleSheet.absoluteFill}
++            camera={{ target: { latitude: ride.pickup_lat, longitude: ride.pickup_lng }, zoom: 14 }}
++          >
++            <HMSMarker
++              coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }}
++              icon={PINS.pickup}
++              markerAnchor={[0.5, 0.5]}
++            />
++            {stops.map((stop, i) => (
++              <HMSMarker
++                key={stop.id}
++                coordinate={{ latitude: stop.lat, longitude: stop.lng }}
++                icon={stopPin(i + 1, !!stop.reached_at)}
++                markerAnchor={[0.5, 0.5]}
++              />
++            ))}
++            <HMSMarker
++              coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }}
++              icon={PINS.destination}
++              markerAnchor={[0.5, 1]}
++            />
++          </HMSMap>
++        ) : (
++          <MapView
++            ref={mapRef}
++            provider={PROVIDER_GOOGLE}
++            style={StyleSheet.absoluteFill}
++            initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
++          >
++            <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
++              <View style={styles.markerPickup}>
++                <Ionicons name="ellipse" size={10} color="#000" />
+               </View>
+             </Marker>
+-          ))}
+ 
+-          <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
+-            <View style={styles.markerDest}>
+-              <Ionicons name="location" size={26} color={COLORS.red} />
+-            </View>
+-          </Marker>
+-        </MapView>
++            {stops.map((stop, i) => (
++              <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
++                <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
++                  <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
++                </View>
++              </Marker>
++            ))}
++
++            <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
++              <View style={styles.markerDest}>
++                <Ionicons name="location" size={26} color={COLORS.red} />
++              </View>
++            </Marker>
++          </MapView>
++        )}
+ 
+         <SOSFab rideId={ride.id} role="driver" />
+         <SupportChatFab role="driver" bottom={280} />
+diff --git a/app/(driver)/home.tsx b/app/(driver)/home.tsx
+index 39ee829..67584e4 100644
+--- a/app/(driver)/home.tsx
++++ b/app/(driver)/home.tsx
+@@ -5,13 +5,10 @@ import {
+ } from "react-native";
+ import { Ionicons } from "@expo/vector-icons";
+ import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
+-import * as Location from "expo-location";
++import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
++import * as Location from "../../src/lib/locationService";
+ import { router, useFocusEffect } from "expo-router";
+-<<<<<<< HEAD
+ import { resetTo, navigateFromMenu } from "../../src/lib/navigation";
+-=======
+-import { resetTo } from "../../src/lib/navigation";
+->>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
+ 
+ import Screen from "../../src/components/Screen";
+ import RiderHeader from "../../src/components/RiderHeader";
+@@ -23,6 +20,8 @@ import SOSFab from "../../src/components/SOSFab";
+ import SupportChatFab from "../../src/components/SupportChatFab";
+ import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
+ import { regionFromCenterZoom } from "../../src/lib/mapCamera";
++import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
++import { PINS } from "../../src/components/map/pins";
+ import {
+   Ride, getPendingRideRequests, getActiveRideForDriver,
+   acceptRide, formatFare, TIER_CONFIG, getRideHistory,
+@@ -76,6 +75,7 @@ export default function DriverHome() {
+   const [newRequestBanner, setNewRequestBanner] = useState<NearbyRide | null>(null);
+ 
+   const mapRef = useRef<MapView>(null);
++  const mobileServiceProvider = useMobileServiceProvider();
+   const coordsRef = useRef<[number, number] | null>(null);
+   const seenIdsRef = useRef<Set<string>>(new Set());
+   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+@@ -383,7 +383,31 @@ export default function DriverHome() {
+       <SupportChatFab role="driver" />
+ 
+       <View style={styles.mapWrap}>
+-        {coords ? (
++        {coords && mobileServiceProvider === "hms" ? (
++          // HMS Map Kit (Huawei/Honor devices without Google Play
++          // Services — see src/lib/mobileServices.ts). HMS markers take an
++          // image `icon` rather than arbitrary JSX, so the fare pill
++          // becomes a marker `title` instead of an always-visible label —
++          // see PINS in src/components/map/pins.ts. Not build-tested
++          // against real HMS Core hardware; verify prop names once
++          // @hmscore/react-native-hms-map is installed.
++          <HMSMap
++            style={StyleSheet.absoluteFill}
++            camera={{ target: { latitude: coords[1], longitude: coords[0] }, zoom: 13 }}
++            myLocationEnabled
++            myLocationButtonEnabled={false}
++          >
++            {online && nearby.map((r) => (
++              <HMSMarker
++                key={r.id}
++                coordinate={{ latitude: r.pickup_lat, longitude: r.pickup_lng }}
++                icon={PINS.request}
++                markerAnchor={[0.5, 1]}
++                title={r.estimated_fare_cents ? formatFare(r.estimated_fare_cents) : "—"}
++              />
++            ))}
++          </HMSMap>
++        ) : coords ? (
+           <MapView
+             ref={mapRef}
+             provider={PROVIDER_GOOGLE}
+diff --git a/app/(driver)/statements.tsx b/app/(driver)/statements.tsx
+index 396a601..e65ae72 100644
+--- a/app/(driver)/statements.tsx
++++ b/app/(driver)/statements.tsx
+@@ -65,11 +65,7 @@ export default function StatementsScreen() {
+     setExporting(true);
+     try {
+       const { start } = getPeriodBounds(period, anchor);
+-<<<<<<< HEAD
+       const { savedToDevice } = await exportStatementPdf({
+-=======
+-      await exportStatementPdf({
+->>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
+         driverName,
+         vehicleLabel,
+         period,
+diff --git a/app/(rider)/home.tsx b/app/(rider)/home.tsx
+index 3983596..baf357a 100644
+--- a/app/(rider)/home.tsx
++++ b/app/(rider)/home.tsx
+@@ -644,7 +644,6 @@ export default function RiderHome() {
+       const ride = await requestRide(commonParams);
+ 
+       // The ride already defaults to the rider's saved payment
+-<<<<<<< HEAD
+       // preference server-side (via a DB trigger). This only needs to
+       // run when they picked something different just for this trip —
+       // but since a driver can accept (and, for card rides, trigger a
+@@ -662,16 +661,6 @@ export default function RiderHome() {
+             console.warn("[rider/home] Retry also failed, ride will use the saved default:", e2?.message ?? e2);
+           }
+         }
+-=======
+-      // preference server-side (via a DB trigger), but this covers the
+-      // case where they picked something different just for this trip —
+-      // best-effort, same reasoning as the fare offer below: shouldn't
+-      // block getting to tracking if it fails.
+-      try {
+-        await setRidePaymentMethod(ride.id, paymentMethod);
+-      } catch (e: any) {
+-        console.warn("[rider/home] Couldn't set ride payment method:", e?.message ?? e);
+->>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
+       }
+ 
+       // If a custom fare was set before requesting, send it the moment the
+@@ -1050,14 +1039,10 @@ export default function RiderHome() {
+             </View>
+ 
+             {/* Payment method — defaults to the rider's saved preference,
+-<<<<<<< HEAD
+                 overridable per ride. Shown before Request Ride so the
+                 choice is made (or confirmed) before the ride is sent to
+                 drivers, not after. */}
+             <Text style={styles.paymentLabel}>Payment method</Text>
+-=======
+-                overridable per ride. */}
+->>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
+             <View style={styles.paymentRow}>
+               {(["cash", "wallet", "card"] as PaymentMethod[]).map((method) => {
+                 const isSelected = paymentMethod === method;
+@@ -1305,12 +1290,8 @@ const styles = StyleSheet.create({
+     color: COLORS.text, fontSize: 14,
+   },
+   makeOfferLink: { color: COLORS.red, fontWeight: "800", fontSize: 13, textAlign: "center" },
+-<<<<<<< HEAD
+   paymentLabel: { color: COLORS.textDim, fontSize: 12, fontWeight: "700", marginTop: SPACE.sm },
+   paymentRow: { flexDirection: "row", gap: 8, marginTop: 6 },
+-=======
+-  paymentRow: { flexDirection: "row", gap: 8, marginTop: SPACE.sm },
+->>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
+   paymentChip: {
+     flex: 1,
+     flexDirection: "row",
+diff --git a/app/(rider)/ride-tracking.tsx b/app/(rider)/ride-tracking.tsx
+index 3e7fed7..32938ee 100644
+--- a/app/(rider)/ride-tracking.tsx
++++ b/app/(rider)/ride-tracking.tsx
+@@ -1,6 +1,7 @@
+ import React, { useEffect, useRef, useState } from "react";
+ import { View, Text, StyleSheet, Pressable, Alert, TextInput } from "react-native";
+ import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
++import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
+ import { Ionicons } from "@expo/vector-icons";
+ import { router, useLocalSearchParams } from "expo-router";
+ 
+@@ -13,6 +14,8 @@ import SupportChatFab from "../../src/components/SupportChatFab";
+ import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
+ import { bearing } from "../../src/lib/geo";
+ import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
++import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
++import { PINS, stopPin } from "../../src/components/map/pins";
+ import {
+   Ride, getRideById, subscribeToRide, cancelRide,
+   formatFare, statusLabel, TIER_CONFIG,
+@@ -38,6 +41,7 @@ function etaMinutes(ride: Ride): number | null {
+ export default function RideTrackingScreen() {
+   const { rideId } = useLocalSearchParams<{ rideId: string }>();
+   const mapRef = useRef<MapView>(null);
++  const mobileServiceProvider = useMobileServiceProvider();
+   const [ride, setRide] = useState<Ride | null>(null);
+   const [cancelling, setCancelling] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+@@ -314,55 +318,97 @@ export default function RideTrackingScreen() {
+   return (
+     <Screen>
+       <View style={styles.root}>
+-        <MapView
+-          ref={mapRef}
+-          provider={PROVIDER_GOOGLE}
+-          style={StyleSheet.absoluteFill}
+-          initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
+-        >
+-          {/* Pickup — pulses while we're still searching for a driver */}
+-          <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
+-            <View style={styles.markerPickupWrap}>
+-              {ride.status === "requested" && (
+-                <View style={styles.pulseWrap} pointerEvents="none">
+-                  <PulsingDot color={COLORS.red} size={12} />
++        {mobileServiceProvider === "hms" ? (
++          // HMS Map Kit (Huawei/Honor devices without Google Play
++          // Services — see src/lib/mobileServices.ts). HMS markers rotate
++          // via a `rotation` prop on the marker object rather than a CSS
++          // transform, which maps cleanly onto driverBearing. The pickup
++          // pulse animation has no HMS equivalent here — it's a static
++          // pin instead. Not build-tested against real HMS Core hardware;
++          // verify prop names once @hmscore/react-native-hms-map is
++          // installed.
++          <HMSMap
++            style={StyleSheet.absoluteFill}
++            camera={{ target: { latitude: ride.pickup_lat, longitude: ride.pickup_lng }, zoom: 14 }}
++          >
++            <HMSMarker
++              coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }}
++              icon={PINS.pickup}
++              markerAnchor={[0.5, 0.5]}
++            />
++            {stops.map((stop, i) => (
++              <HMSMarker
++                key={stop.id}
++                coordinate={{ latitude: stop.lat, longitude: stop.lng }}
++                icon={stopPin(i + 1, !!stop.reached_at)}
++                markerAnchor={[0.5, 0.5]}
++              />
++            ))}
++            <HMSMarker
++              coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }}
++              icon={PINS.destination}
++              markerAnchor={[0.5, 1]}
++            />
++            {driverPos && (
++              <HMSMarker
++                coordinate={{ latitude: driverPos.lat, longitude: driverPos.lng }}
++                icon={PINS.driver}
++                markerAnchor={[0.5, 0.5]}
++                rotation={driverBearing}
++              />
++            )}
++          </HMSMap>
++        ) : (
++          <MapView
++            ref={mapRef}
++            provider={PROVIDER_GOOGLE}
++            style={StyleSheet.absoluteFill}
++            initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
++          >
++            {/* Pickup — pulses while we're still searching for a driver */}
++            <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
++              <View style={styles.markerPickupWrap}>
++                {ride.status === "requested" && (
++                  <View style={styles.pulseWrap} pointerEvents="none">
++                    <PulsingDot color={COLORS.red} size={12} />
++                  </View>
++                )}
++                <View style={styles.markerPickup}>
++                  <Ionicons name="ellipse" size={10} color="#000" />
+                 </View>
+-              )}
+-              <View style={styles.markerPickup}>
+-                <Ionicons name="ellipse" size={10} color="#000" />
+-              </View>
+-            </View>
+-          </Marker>
+-
+-          {/* Stops */}
+-          {stops.map((stop, i) => (
+-            <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
+-              <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
+-                <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+               </View>
+             </Marker>
+-          ))}
+ 
+-          {/* Destination */}
+-          <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
+-            <View style={styles.markerDest}>
+-              <Ionicons name="location" size={26} color={COLORS.red} />
+-            </View>
+-          </Marker>
+-
+-          {/* Driver — animates smoothly between updates and rotates to face
+-              its direction of travel toward pickup/destination. */}
+-          {driverPos && (
+-            <Marker
+-              coordinate={{ latitude: driverPos.lat, longitude: driverPos.lng }}
+-              anchor={{ x: 0.5, y: 0.5 }}
+-            >
+-              <View style={[styles.driverDot, { transform: [{ rotate: `${driverBearing}deg` }] }]}>
+-                <Ionicons name="navigate" size={16} color="#000" />
++            {/* Stops */}
++            {stops.map((stop, i) => (
++              <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
++                <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
++                  <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
++                </View>
++              </Marker>
++            ))}
++
++            {/* Destination */}
++            <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
++              <View style={styles.markerDest}>
++                <Ionicons name="location" size={26} color={COLORS.red} />
+               </View>
+             </Marker>
+-          )}
+-        </MapView>
++
++            {/* Driver — animates smoothly between updates and rotates to face
++                its direction of travel toward pickup/destination. */}
++            {driverPos && (
++              <Marker
++                coordinate={{ latitude: driverPos.lat, longitude: driverPos.lng }}
++                anchor={{ x: 0.5, y: 0.5 }}
++              >
++                <View style={[styles.driverDot, { transform: [{ rotate: `${driverBearing}deg` }] }]}>
++                  <Ionicons name="navigate" size={16} color="#000" />
++                </View>
++              </Marker>
++            )}
++          </MapView>
++        )}
+ 
+         <SOSFab rideId={ride.id} role="rider" />
+         <SupportChatFab role="rider" bottom={280} />
+diff --git a/assets/map-pins/destination.png b/assets/map-pins/destination.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..f29b011c5418c17f05feda31dcee4688b782095a
+GIT binary patch
+literal 2476
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/driver.png b/assets/map-pins/driver.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c97562f4638302f37218af85a30bb8646a15fac
+GIT binary patch
+literal 2768
+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
+Wf@ex=Dp0xr0000<MNUMnLSTZv*hKpP
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/pickup.png b/assets/map-pins/pickup.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..f1cbb8b5480c7855c1e31ca709a02d4a7de83877
+GIT binary patch
+literal 2918
+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
+QtpET307*qoM6N<$f?0!?1poj5
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/request-pin.png b/assets/map-pins/request-pin.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..93f01d89d21c6290effd3cd4b7cb0107fe9865af
+GIT binary patch
+literal 1848
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-1.png b/assets/map-pins/stop-1.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f80b90966fd11d5c581f12e5043298cc0e2328d
+GIT binary patch
+literal 2138
+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
+QdH?_b07*qoM6N<$f}+wAy8r+H
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-2.png b/assets/map-pins/stop-2.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..94bac21ea32faa5f256c06428c3a2b14ee7fa851
+GIT binary patch
+literal 2398
+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
+Q-T(jq07*qoM6N<$g3c|U;{X5v
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-3.png b/assets/map-pins/stop-3.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d48db40e92aecfa0c035032eb6bd7860a5b8cce
+GIT binary patch
+literal 2495
+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
+JPDHLkV1f})xf1{Y
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-4.png b/assets/map-pins/stop-4.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..f9a9a3e6b814d7d5c104a2a2f4262d68412418b0
+GIT binary patch
+literal 2290
+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
+M07*qoM6N<$f^Qs37ytkO
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-5.png b/assets/map-pins/stop-5.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..4d2dcd95221ddb5539984ab34783f821b61983ca
+GIT binary patch
+literal 2407
+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
+Z=zmhMAUqVJuQdPw002ovPDHLkV1nJ>kDvem
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-6.png b/assets/map-pins/stop-6.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..2c81d54216ec172ccc3add894faeb8ab0c31d019
+GIT binary patch
+literal 2524
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-7.png b/assets/map-pins/stop-7.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..cda092e91cd72e6ef0083f818905e95a773f0350
+GIT binary patch
+literal 2276
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-8.png b/assets/map-pins/stop-8.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..19b706ed93f86bbb1e7ff772156f49d570d6eb80
+GIT binary patch
+literal 2544
+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
+GLSTXq8_N9v
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-9.png b/assets/map-pins/stop-9.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f0f99b9c2d08df9dbc2347463f6b7c15a719b52
+GIT binary patch
+literal 2497
+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
+LNkvXXu0mjfAC0r8
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/map-pins/stop-done.png b/assets/map-pins/stop-done.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f6bb74881869efe6001eaf2f5c4531b6044b646
+GIT binary patch
+literal 2567
+zcmV+i3i$PjP)<h;3K|Lk000e1NJLTq001li001lq1^@s69)wx}000TjNkl<Zc%0Rl
+zdyG}Z9mhYvnfutiyUVf*yC81_1&vZvL=alVSD{+^h!GTn4@^ikO);&h#z;(CtCDDm
+zCbg|;ELAEhDmB$ADn+CMf`UM3dCO~eL0<d3d+$AGe*NRzv-j?0S#}rx=`T6Cx#!H8
+z`OI&=^P8F9f&Vj;b5w`PtII2RZnMucd%1JaW{=EfukM<V>qL)U?yi~aZ|JEiU@R~h
+z7y^vTmeK6<?Z5%xQ(!%?Kd&we_&s3gl7&Mb+GOBO;FyT0u|`eAs<B2T?=le++%uv;
+z3-Adrqo8iXIkrO3Wk3KGfcQWrd-(;Im%Z;HsIf*7QQ-3e@JLrcx*~~i*ouJP0uPE2
+zR8>(NV9NSe$a!OiQaQYueisj>s8=!0cc4(aWgqp2j#IN~FUNM*wM{y)#;WfCJ_P0v
+z$mWa^ITLVL!D!%5z_*Px&iPIOJMy|qx%9^q7%}A%5|w4xn8kVRgMhIHb&gbHD+j;W
+z&E}<R*!GVNWLi>AM4Und)jHrl;N3GpcLp53I0pC#p-MzNbs8BwZUomqdMiUFj6#f%
+zZf?b8d{h;rpvvq$V-3+n92<>rbY~5#o_&YSOV<GSV#KObfV+W31o9{hkDUS=f}tA$
+ztU;to1W%nt#@}}XH$HY7HfCvUNCt(C>5{nAIn*i9M4VV6&KG}O$@0gS(Ato6VvMSD
+zmO$69pANdCX2NJ-fK`Z02t4Z|-+S^-CjMk9P2bd`PBFG;lUtpl&QV%j&b~F<`P;08
+zBu_RwF@id60LBA5$vLjgI%?4nNMQjm!I%Jc+LL!OVeU;d)}07?)I(SRF@lL$8V{dj
+z(3K;(WAQwSD@qKYBGMap87L)iUOT52wi@boJTT8#<2m0&#@~BASKmLC#>4fPh&@%O
+zJv1AQ&~mhip%X`Q^V73Yr&g?FfUAH9vMlXZ)6=<Wz8F#GI~g!`I5#~$gQg?(*ho)S
+z;+&~dvY{*o9Sb}?=GKXfpK}AwbJiH+fO$Z97P`$t`M{xfuL7o_sEF7b=ii2jTGZ)T
+zZI#q1(c&2K@<b3#@*9p=k|&$F<`>f`>tA7<IwvCifw=@rd>dy+9)8$ZV^q}*oiv(Z
+zSC68#A$eAsb)HY6vXsqle8z^CR!~$3E#Rj;N~?Nv#a-8eV#JC94+6aiCZ6O23xRk0
+z0M~~dA3I|ba+Z2^z9U{%OzoC^y#Ls%y!Xf}y!XqOiI*0UjlBVYHKbcwx%lQQh?Nu>
+z=R1ecADBSkWt$Hi{(cLQQs+Crq;D@7IptDP&8<BTUkWB-$RyLe{lJT)n_Dpv%it?V
+zQlJV%giJC;)u@3Cop2#2YK&FjJNf1EJq$2Kj1fQwUVc7_K4tisp6~wD_eoTgvU0&P
+z4sSaEz|{{-<FY%xL#i=}n8H;t2zkRMjSiRu0j|kD_49$l{tgQjP%*R$8?~I`ic_Fm
+zyP*xud5%P78C%|3$GR6k1Ypp(kxY5`M>HL&?|9TiP^VN3>jxlNoeuz_A!GPf=*F?x
+zLZ<&ELxLSwCmL4Y5$}~Cnuxc94wl~-$9C88?n8@ERf;Q0nEtza(2Sqwp8{SZc&QA1
+zM)V_E95?D5hztjYXN#D^Znpi8mnBXM8d_QZ3fBJN1Gay#k)rYh&dbTi#v=Ul(Z#f!
+zXaW(YJu!>w(E~}hq>xjZ&2xfNVx{pwE<wNAd8}~LthpCEJ1Z(;3`^&}z@{auiIv3Z
+zchMj!hE<b1-bk+jm8^K`ZFa5L0>IcAlNdX5av+5+EItJi3lFcrsc|^kR;m;22D9H1
+zD=7jX(~{=3yPv1A_5{6$RIz>eCRRQ3cL1tK4dlDOno06RGsbppr7UP$$a8E69M-fg
+z8+WyC^S)qWbO0_Q_$iO?KXW%1-7*eU<(nNfyfX6{YQFlK<@1-|oFi6J#1EdEL%g&Y
+z-}BG7QmRuTMNy9JtRvHsQVH6x0S<*lLh`VxJz3{#{lQ~6=Q?RbX+GM(51*Sux~Y}j
+zE4OlVXDxrcZhqVG=$fBTXYiFHX*^sXM4T>|F^2j>$5B<4z<YH-L)d7cBtBCOw0rQ&
+z-J}|lrys^_2ttIJi+;+`iK77UGd}8+QByBt;{8);{-&YJu&5$NIIwO9fD6JfYsr&E
+zVUFQ*b(#_*k(2w6>cI`Wi6!EJr#oUcf}i#fW0=119x8@a(|6=~RF59W%?oDZwPw1t
+z6}9mw^@onJclCb)s9<OJ33-z)l!VK|9|AUsk@3!RZqw`kwinzmCik=hGuDu9Nl`wa
+z4|gqnh)8jaOiPO5@&sPWJ9RZXjXBSeC{M8Ut+g~BKB>kU>wK34R_8Ic!;tLFXPqC6
+z#*X(la%4vh(L}7n)hr)6lT4H7Q%1BnMoCpUUb^eBkXtl1ELsWRtEv#3JZcDn!YROh
+z_WzqGUm0Uex+Ud*vS1mplK2_oa#kLmkNS$A@w&Ck^D{n)zGZA&{3*4Yzg96~)M*lU
+znp`50LSV>kGk@cJC&n7xx@;ZmUs^$Fbvb^z^No;*fY2>i=Q)bY6Vz_p%g0YFMXd2r
+z41ss|P;d|}1P;Bt4EUEijfgS+^2cA}>owa+^ex5DbeJyakvY#NS{$Rbp@n5X`!lT#
+zEsA1Q^$0<hDL<*$A#gtUtl&j8>84iq>a2wvT)&I5e!cNCUZ*QzSIp0N6!l7wNv2qQ
+z`?J(--LJ+PFDt!!fqmrWRj0sVOsEBBt5XqUG<mYwExuzRo8MeZX;nGK8l2~M4_p=J
+z1>4cm>T(YM_aLv#c!on8_o}fr<9rtdo+3zDMd%=9)tT7B%*$QCU$RLKAFvbW-o)g2
+zw@_MDPP!#UCYjDvSQr_c24kwh4lZ6+gx8v3(~{ME^y@chZD?`E8g;(2zze|r^dMDL
+z2z@*7yomHc$f(mu`Jg^BZuYf|nszx=7Y;y-puXazGi@hq0c<Rav4R*wea&%peY}M)
+zUS7$eFZU=xUM-RhnNI<akkf64L)Vq*9711AkincJ)}X%g02?bUlHrptV#xRls64+P
+zmBafHFNx!vf+|OM)zMIUoP+Ckv1ipb8fs4{;KUe<DjH-i=K}B0L29a}7Osd1;9=lE
+zm~|(Y%=Q335|6rgX_3ZC;x1MacjOY=8NkcS#y11M2Zj~2an3A%f>vh1_Y;0Dutvq0
+za46d@F?r8}%=^hK=mmN8bvdQf-K0bK1t^>lWxynY&j^!&0SF^Na`7|R&mI9j16C32
+z4Qld0yY(ror&*Fh@X#!9KJAy&TA-<eay|NHceZKB{Ev#KKMv<Q$QjCYsljt;r{r_#
+dBt-SZ{s#>}J`k!!br}Ev002ovPDHLkV1gqR%?SVi
+
+literal 0
+HcmV?d00001
+
+diff --git a/package.json b/package.json
+index 1bac02d..ba88510 100644
+--- a/package.json
++++ b/package.json
+@@ -11,6 +11,9 @@
+   "dependencies": {
+     "@expo/metro-runtime": "~6.1.2",
+     "@expo/vector-icons": "^15.0.3",
++    "@hmscore/react-native-hms-availability": "^6.12.0-301",
++    "@hmscore/react-native-hms-location": "^6.16.0-302",
++    "@hmscore/react-native-hms-map": "^6.12.0-301",
+     "@react-native-async-storage/async-storage": "2.2.0",
+     "@react-native-community/datetimepicker": "8.4.4",
+     "@supabase/supabase-js": "^2.108.2",
+diff --git a/plugins/withHmsCore.js b/plugins/withHmsCore.js
+new file mode 100644
+index 0000000..4ccdab9
+--- /dev/null
++++ b/plugins/withHmsCore.js
+@@ -0,0 +1,109 @@
++// Wires Huawei Mobile Services (HMS Core) into the native Android build:
++// the Huawei Maven repo, the AGConnect Gradle plugin, and copying
++// agconnect-services.json into android/app/ during `expo prebuild`.
++//
++// Deliberately a no-op if agconnect-services.json isn't present at the
++// project root — that's the signal that HMS/AppGallery Connect setup
++// (see the Huawei Developer Console steps) hasn't been done yet. This
++// keeps `expo prebuild` working for anyone who hasn't done that setup,
++// instead of failing the whole Android build over a missing Huawei
++// config file.
++//
++// Usage — add to app.json's "plugins" array:
++//   ["./plugins/withHmsCore", {}]
++//
++// Requires, once agconnect-services.json is in place:
++//   npm install @hmscore/react-native-hms-map @hmscore/react-native-hms-location @hmscore/react-native-hms-availability
++//
++// NOTE: this has not been run through an actual `expo prebuild` +
++// Android build — there's no HMS-registered app / agconnect-services.json
++// available in this environment to test against. Sanity-check the
++// generated android/build.gradle and android/app/build.gradle after your
++// first prebuild once you have real credentials, and compare against
++// Huawei's "Integrating the AppGallery Connect Plugin" docs if the build
++// fails.
++const fs = require("fs");
++const path = require("path");
++const {
++  withProjectBuildGradle,
++  withAppBuildGradle,
++  withDangerousMod,
++} = require("expo/config-plugins");
++
++const AGCONNECT_SERVICES_FILENAME = "agconnect-services.json";
++
++function hasAgConnectConfig(projectRoot) {
++  return fs.existsSync(path.join(projectRoot, AGCONNECT_SERVICES_FILENAME));
++}
++
++const HUAWEI_MAVEN_REPO = 'maven { url "https://developer.huawei.com/repo/" }';
++const AGCONNECT_CLASSPATH = "classpath 'com.huawei.agconnect:agcp:1.9.3.301'";
++const AGCONNECT_APPLY = "apply plugin: 'com.huawei.agconnect'";
++
++function withHmsProjectGradle(config) {
++  return withProjectBuildGradle(config, (config) => {
++    if (!hasAgConnectConfig(config.modRequest.projectRoot)) return config;
++    let contents = config.modResults.contents;
++
++    if (!contents.includes(HUAWEI_MAVEN_REPO)) {
++      // Add the Huawei Maven repo everywhere Google's/Maven Central's repo
++      // is declared (buildscript.repositories and allprojects.repositories).
++      contents = contents.replace(
++        /repositories\s*{/g,
++        (match) => `${match}\n        ${HUAWEI_MAVEN_REPO}`
++      );
++    }
++
++    if (!contents.includes(AGCONNECT_CLASSPATH)) {
++      contents = contents.replace(
++        /dependencies\s*{/,
++        (match) => `${match}\n        ${AGCONNECT_CLASSPATH}`
++      );
++    }
++
++    config.modResults.contents = contents;
++    return config;
++  });
++}
++
++function withHmsAppGradle(config) {
++  return withAppBuildGradle(config, (config) => {
++    if (!hasAgConnectConfig(config.modRequest.projectRoot)) return config;
++    let contents = config.modResults.contents;
++
++    if (!contents.includes(AGCONNECT_APPLY)) {
++      // Must come after the existing `apply plugin: "com.android.application"`
++      // line for AGConnect's Gradle plugin to pick up the app config.
++      contents = contents.replace(
++        /apply plugin: ["']com\.android\.application["']/,
++        (match) => `${match}\n${AGCONNECT_APPLY}`
++      );
++    }
++
++    config.modResults.contents = contents;
++    return config;
++  });
++}
++
++function withAgConnectServicesJson(config) {
++  return withDangerousMod(config, [
++    "android",
++    async (config) => {
++      const projectRoot = config.modRequest.projectRoot;
++      const src = path.join(projectRoot, AGCONNECT_SERVICES_FILENAME);
++      if (!fs.existsSync(src)) return config;
++
++      const destDir = path.join(config.modRequest.platformProjectRoot, "app");
++      fs.mkdirSync(destDir, { recursive: true });
++      fs.copyFileSync(src, path.join(destDir, AGCONNECT_SERVICES_FILENAME));
++      return config;
++    },
++  ]);
++}
++
++module.exports = function withHmsCore(config) {
++  config = withHmsProjectGradle(config);
++  config = withHmsAppGradle(config);
++  config = withAgConnectServicesJson(config);
++  return config;
++};
+diff --git a/src/components/MapPicker.tsx b/src/components/MapPicker.tsx
+index 2028d5e..da365d4 100644
+--- a/src/components/MapPicker.tsx
++++ b/src/components/MapPicker.tsx
+@@ -1,74 +1,27 @@
+-import React, { useRef, useState } from "react";
+-import { View, Text, Pressable, StyleSheet } from "react-native";
+-import MapView, { PROVIDER_GOOGLE, Region } from "react-native-maps";
+-import { Ionicons } from "@expo/vector-icons";
+-import { COLORS, RADIUS, SPACE } from "../theme/tokens";
+-import { regionFromCenterZoom } from "../lib/mapCamera";
++// Routes to the Google (react-native-maps) or HMS (HMS Map Kit)
++// implementation depending on whether the device has Google Play
++// Services or Huawei Mobile Services. See src/lib/mobileServices.ts.
++import React from "react";
++import { View, ActivityIndicator } from "react-native";
++import { useMobileServiceProvider } from "../hooks/useMobileServiceProvider";
++import MapPickerGoogle from "./map/MapPickerGoogle";
++import MapPickerHms from "./map/MapPickerHms";
+ 
+ type Props = {
+   initialCenter: [number, number]; // [lng, lat]
+   onConfirm: (coords: { latitude: number; longitude: number }) => void;
+ };
+ 
+-export default function MapPicker({ initialCenter, onConfirm }: Props) {
+-  const mapRef = useRef<MapView>(null);
+-  const [center, setCenter] = useState<[number, number]>(initialCenter);
++export default function MapPicker(props: Props) {
++  const provider = useMobileServiceProvider();
+ 
+-  return (
+-    <View style={styles.root}>
+-      <MapView
+-        ref={mapRef}
+-        provider={PROVIDER_GOOGLE}
+-        style={styles.map}
+-        initialRegion={regionFromCenterZoom(initialCenter[0], initialCenter[1], 15)}
+-        onRegionChangeComplete={(region: Region) => {
+-          setCenter([region.longitude, region.latitude]);
+-        }}
+-      />
+-
+-      {/* Fixed center pin, overlaid on top of the map (doesn't move with the map) */}
+-      <View style={styles.pinWrap} pointerEvents="none">
+-        <Ionicons name="location" size={36} color={COLORS.red} />
++  if (provider === null) {
++    return (
++      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
++        <ActivityIndicator />
+       </View>
++    );
++  }
+ 
+-      <View style={styles.confirmWrap}>
+-        <Pressable
+-          style={styles.confirmBtn}
+-          onPress={() => onConfirm({ latitude: center[1], longitude: center[0] })}
+-        >
+-          <Text style={styles.confirmTxt}>Confirm Location</Text>
+-        </Pressable>
+-      </View>
+-    </View>
+-  );
++  return provider === "hms" ? <MapPickerHms {...props} /> : <MapPickerGoogle {...props} />;
+ }
+-
+-const styles = StyleSheet.create({
+-  root: { flex: 1 },
+-  map: { flex: 1 },
+-  pinWrap: {
+-    position: "absolute",
+-    top: "50%",
+-    left: "50%",
+-    marginLeft: -18,
+-    marginTop: -36,
+-  },
+-  confirmWrap: {
+-    position: "absolute",
+-    bottom: 24,
+-    left: SPACE.md,
+-    right: SPACE.md,
+-  },
+-  confirmBtn: {
+-    height: 52,
+-    borderRadius: RADIUS.xl,
+-    backgroundColor: COLORS.red,
+-    alignItems: "center",
+-    justifyContent: "center",
+-  },
+-  confirmTxt: {
+-    color: "#000",
+-    fontWeight: "900",
+-    fontSize: 16,
+-  },
+-});
+diff --git a/src/components/RiderMap.native.tsx b/src/components/RiderMap.native.tsx
+index b2eead8..7ac27a4 100644
+--- a/src/components/RiderMap.native.tsx
++++ b/src/components/RiderMap.native.tsx
+@@ -1,74 +1,27 @@
+-import React, { useEffect, useRef, useState } from "react";
+-import { StyleSheet, View, Pressable, Text } from "react-native";
+-import MapView, { PROVIDER_GOOGLE } from "react-native-maps";
+-import * as Location from "expo-location";
+-import { flyTo, regionFromCenterZoom } from "../lib/mapCamera";
++// Routes to the Google (react-native-maps) or HMS (HMS Map Kit)
++// implementation depending on whether the device has Google Play
++// Services or Huawei Mobile Services. See src/lib/mobileServices.ts.
++import React from "react";
++import { View, ActivityIndicator } from "react-native";
++import { useMobileServiceProvider } from "../hooks/useMobileServiceProvider";
++import RiderMapGoogle from "./map/RiderMapGoogle";
++import RiderMapHms from "./map/RiderMapHms";
+ 
+ type Props = {
+   centerCoordinate: [number, number]; // [lng, lat]
+   zoomLevel?: number;
+ };
+ 
+-export default function RiderMap({ centerCoordinate, zoomLevel = 14 }: Props) {
+-  const mapRef = useRef<MapView>(null);
+-  const [lastUser, setLastUser] = useState<[number, number] | null>(null);
++export default function RiderMap(props: Props) {
++  const provider = useMobileServiceProvider();
+ 
+-  // Fly to new center when it changes
+-  useEffect(() => {
+-    flyTo(mapRef, centerCoordinate[0], centerCoordinate[1], zoomLevel, 900);
+-    // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [centerCoordinate[0], centerCoordinate[1], zoomLevel]);
++  if (provider === null) {
++    return (
++      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
++        <ActivityIndicator />
++      </View>
++    );
++  }
+ 
+-  // Request location permission and get current position
+-  useEffect(() => {
+-    (async () => {
+-      try {
+-        const perm = await Location.requestForegroundPermissionsAsync();
+-        if (perm.status === "granted") {
+-          const cur = await Location.getCurrentPositionAsync({
+-            accuracy: Location.Accuracy.High,
+-          });
+-          setLastUser([cur.coords.longitude, cur.coords.latitude]);
+-        }
+-      } catch {
+-        // permission or location services unavailable
+-      }
+-    })();
+-  }, []);
+-
+-  const flyToUser = () => {
+-    if (!lastUser) return;
+-    flyTo(mapRef, lastUser[0], lastUser[1], Math.max(zoomLevel, 15), 700);
+-  };
+-
+-  return (
+-    <View style={styles.root}>
+-      <MapView
+-        ref={mapRef}
+-        provider={PROVIDER_GOOGLE}
+-        style={styles.map}
+-        initialRegion={regionFromCenterZoom(centerCoordinate[0], centerCoordinate[1], zoomLevel)}
+-        showsUserLocation
+-      />
+-
+-      <Pressable style={styles.gpsBtn} onPress={flyToUser}>
+-        <Text style={styles.gpsBtnTxt}>Center to GPS</Text>
+-      </Pressable>
+-    </View>
+-  );
++  return provider === "hms" ? <RiderMapHms {...props} /> : <RiderMapGoogle {...props} />;
+ }
+-
+-const styles = StyleSheet.create({
+-  root: { flex: 1 },
+-  map: { flex: 1 },
+-  gpsBtn: {
+-    position: "absolute",
+-    bottom: 24,
+-    right: 16,
+-    backgroundColor: "rgba(0,0,0,0.75)",
+-    paddingHorizontal: 14,
+-    paddingVertical: 10,
+-    borderRadius: 12,
+-  },
+-  gpsBtnTxt: { color: "white", fontWeight: "700" },
+-});
+diff --git a/src/components/map/MapPickerGoogle.tsx b/src/components/map/MapPickerGoogle.tsx
+new file mode 100644
+index 0000000..d9d7333
+--- /dev/null
++++ b/src/components/map/MapPickerGoogle.tsx
+@@ -0,0 +1,74 @@
++import React, { useRef, useState } from "react";
++import { View, Text, Pressable, StyleSheet } from "react-native";
++import MapView, { PROVIDER_GOOGLE, Region } from "react-native-maps";
++import { Ionicons } from "@expo/vector-icons";
++import { COLORS, RADIUS, SPACE } from "../../theme/tokens";
++import { regionFromCenterZoom } from "../../lib/mapCamera";
++
++type Props = {
++  initialCenter: [number, number]; // [lng, lat]
++  onConfirm: (coords: { latitude: number; longitude: number }) => void;
++};
++
++export default function MapPicker({ initialCenter, onConfirm }: Props) {
++  const mapRef = useRef<MapView>(null);
++  const [center, setCenter] = useState<[number, number]>(initialCenter);
++
++  return (
++    <View style={styles.root}>
++      <MapView
++        ref={mapRef}
++        provider={PROVIDER_GOOGLE}
++        style={styles.map}
++        initialRegion={regionFromCenterZoom(initialCenter[0], initialCenter[1], 15)}
++        onRegionChangeComplete={(region: Region) => {
++          setCenter([region.longitude, region.latitude]);
++        }}
++      />
++
++      {/* Fixed center pin, overlaid on top of the map (doesn't move with the map) */}
++      <View style={styles.pinWrap} pointerEvents="none">
++        <Ionicons name="location" size={36} color={COLORS.red} />
++      </View>
++
++      <View style={styles.confirmWrap}>
++        <Pressable
++          style={styles.confirmBtn}
++          onPress={() => onConfirm({ latitude: center[1], longitude: center[0] })}
++        >
++          <Text style={styles.confirmTxt}>Confirm Location</Text>
++        </Pressable>
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  root: { flex: 1 },
++  map: { flex: 1 },
++  pinWrap: {
++    position: "absolute",
++    top: "50%",
++    left: "50%",
++    marginLeft: -18,
++    marginTop: -36,
++  },
++  confirmWrap: {
++    position: "absolute",
++    bottom: 24,
++    left: SPACE.md,
++    right: SPACE.md,
++  },
++  confirmBtn: {
++    height: 52,
++    borderRadius: RADIUS.xl,
++    backgroundColor: COLORS.red,
++    alignItems: "center",
++    justifyContent: "center",
++  },
++  confirmTxt: {
++    color: "#000",
++    fontWeight: "900",
++    fontSize: 16,
++  },
++});
+diff --git a/src/components/map/MapPickerHms.tsx b/src/components/map/MapPickerHms.tsx
+new file mode 100644
+index 0000000..08fc0c6
+--- /dev/null
++++ b/src/components/map/MapPickerHms.tsx
+@@ -0,0 +1,81 @@
++// HMS Map Kit version of MapPicker (pickup/destination point picker).
++// Same "fixed center pin, drag the map underneath" pattern as
++// MapPickerGoogle.tsx.
++//
++// Requires (once HMS setup is done): npm install @hmscore/react-native-hms-map
++// API verified against @hmscore/react-native-hms-map's shipped
++// TypeScript defs — not build-tested against real HMS Core hardware.
++import React, { useState } from "react";
++import { View, Text, Pressable, StyleSheet } from "react-native";
++import HMSMap from "@hmscore/react-native-hms-map";
++import { Ionicons } from "@expo/vector-icons";
++import { COLORS, RADIUS, SPACE } from "../../theme/tokens";
++
++type Props = {
++  initialCenter: [number, number]; // [lng, lat]
++  onConfirm: (coords: { latitude: number; longitude: number }) => void;
++};
++
++export default function MapPickerHms({ initialCenter, onConfirm }: Props) {
++  const [center, setCenter] = useState<[number, number]>(initialCenter);
++
++  return (
++    <View style={styles.root}>
++      <HMSMap
++        style={styles.map}
++        camera={{ target: { latitude: initialCenter[1], longitude: initialCenter[0] }, zoom: 15 }}
++        useAnimation
++        onCameraIdle={(e: any) => {
++          const target = e?.nativeEvent?.target;
++          if (target?.latitude != null && target?.longitude != null) {
++            setCenter([target.longitude, target.latitude]);
++          }
++        }}
++      />
++
++      {/* Fixed center pin, overlaid on top of the map (doesn't move with the map) */}
++      <View style={styles.pinWrap} pointerEvents="none">
++        <Ionicons name="location" size={36} color={COLORS.red} />
++      </View>
++
++      <View style={styles.confirmWrap}>
++        <Pressable
++          style={styles.confirmBtn}
++          onPress={() => onConfirm({ latitude: center[1], longitude: center[0] })}
++        >
++          <Text style={styles.confirmTxt}>Confirm Location</Text>
++        </Pressable>
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  root: { flex: 1 },
++  map: { flex: 1 },
++  pinWrap: {
++    position: "absolute",
++    top: "50%",
++    left: "50%",
++    marginLeft: -18,
++    marginTop: -36,
++  },
++  confirmWrap: {
++    position: "absolute",
++    bottom: 24,
++    left: SPACE.md,
++    right: SPACE.md,
++  },
++  confirmBtn: {
++    height: 52,
++    borderRadius: RADIUS.xl,
++    backgroundColor: COLORS.red,
++    alignItems: "center",
++    justifyContent: "center",
++  },
++  confirmTxt: {
++    color: "#000",
++    fontWeight: "900",
++    fontSize: 16,
++  },
++});
+diff --git a/src/components/map/RiderMapGoogle.tsx b/src/components/map/RiderMapGoogle.tsx
+new file mode 100644
+index 0000000..b6354fa
+--- /dev/null
++++ b/src/components/map/RiderMapGoogle.tsx
+@@ -0,0 +1,74 @@
++import React, { useEffect, useRef, useState } from "react";
++import { StyleSheet, View, Pressable, Text } from "react-native";
++import MapView, { PROVIDER_GOOGLE } from "react-native-maps";
++import * as Location from "expo-location";
++import { flyTo, regionFromCenterZoom } from "../../lib/mapCamera";
++
++type Props = {
++  centerCoordinate: [number, number]; // [lng, lat]
++  zoomLevel?: number;
++};
++
++export default function RiderMap({ centerCoordinate, zoomLevel = 14 }: Props) {
++  const mapRef = useRef<MapView>(null);
++  const [lastUser, setLastUser] = useState<[number, number] | null>(null);
++
++  // Fly to new center when it changes
++  useEffect(() => {
++    flyTo(mapRef, centerCoordinate[0], centerCoordinate[1], zoomLevel, 900);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [centerCoordinate[0], centerCoordinate[1], zoomLevel]);
++
++  // Request location permission and get current position
++  useEffect(() => {
++    (async () => {
++      try {
++        const perm = await Location.requestForegroundPermissionsAsync();
++        if (perm.status === "granted") {
++          const cur = await Location.getCurrentPositionAsync({
++            accuracy: Location.Accuracy.High,
++          });
++          setLastUser([cur.coords.longitude, cur.coords.latitude]);
++        }
++      } catch {
++        // permission or location services unavailable
++      }
++    })();
++  }, []);
++
++  const flyToUser = () => {
++    if (!lastUser) return;
++    flyTo(mapRef, lastUser[0], lastUser[1], Math.max(zoomLevel, 15), 700);
++  };
++
++  return (
++    <View style={styles.root}>
++      <MapView
++        ref={mapRef}
++        provider={PROVIDER_GOOGLE}
++        style={styles.map}
++        initialRegion={regionFromCenterZoom(centerCoordinate[0], centerCoordinate[1], zoomLevel)}
++        showsUserLocation
++      />
++
++      <Pressable style={styles.gpsBtn} onPress={flyToUser}>
++        <Text style={styles.gpsBtnTxt}>Center to GPS</Text>
++      </Pressable>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  root: { flex: 1 },
++  map: { flex: 1 },
++  gpsBtn: {
++    position: "absolute",
++    bottom: 24,
++    right: 16,
++    backgroundColor: "rgba(0,0,0,0.75)",
++    paddingHorizontal: 14,
++    paddingVertical: 10,
++    borderRadius: 12,
++  },
++  gpsBtnTxt: { color: "white", fontWeight: "700" },
++});
+diff --git a/src/components/map/RiderMapHms.tsx b/src/components/map/RiderMapHms.tsx
+new file mode 100644
+index 0000000..dc7c8aa
+--- /dev/null
++++ b/src/components/map/RiderMapHms.tsx
+@@ -0,0 +1,92 @@
++// HMS Map Kit version of RiderMap — renders on Huawei/Honor devices
++// without Google Play Services (see src/lib/mobileServices.ts for how
++// that's detected). Mirrors RiderMapGoogle.tsx's behavior: center on the
++// given coordinate, show the user's live position, and a "center to GPS"
++// button.
++//
++// Requires (once HMS setup is done):
++//   npm install @hmscore/react-native-hms-map
++// API verified against @hmscore/react-native-hms-map's shipped
++// TypeScript defs (HMSMap's `camera` prop takes { target: {latitude,
++// longitude}, zoom }, and `setCameraPosition` is available on the ref) —
++// not build-tested against real HMS Core hardware.
++import React, { useEffect, useRef, useState } from "react";
++import { StyleSheet, View, Pressable, Text } from "react-native";
++import HMSMap from "@hmscore/react-native-hms-map";
++import * as LocationService from "../../lib/locationService";
++
++type Props = {
++  centerCoordinate: [number, number]; // [lng, lat]
++  zoomLevel?: number;
++};
++
++export default function RiderMapHms({ centerCoordinate, zoomLevel = 14 }: Props) {
++  const mapRef = useRef<any>(null);
++  const [camera, setCamera] = useState({
++    target: { latitude: centerCoordinate[1], longitude: centerCoordinate[0] },
++    zoom: zoomLevel,
++  });
++  const [lastUser, setLastUser] = useState<[number, number] | null>(null);
++
++  useEffect(() => {
++    setCamera({ target: { latitude: centerCoordinate[1], longitude: centerCoordinate[0] }, zoom: zoomLevel });
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [centerCoordinate[0], centerCoordinate[1], zoomLevel]);
++
++  useEffect(() => {
++    (async () => {
++      try {
++        const perm = await LocationService.requestForegroundPermissionsAsync();
++        if (perm.status === "granted") {
++          const cur = await LocationService.getCurrentPositionAsync({
++            accuracy: LocationService.Accuracy.High,
++          });
++          setLastUser([cur.coords.longitude, cur.coords.latitude]);
++        }
++      } catch {
++        // permission or location services unavailable
++      }
++    })();
++  }, []);
++
++  const flyToUser = () => {
++    if (!lastUser) return;
++    const next = { target: { latitude: lastUser[1], longitude: lastUser[0] }, zoom: Math.max(zoomLevel, 15) };
++    setCamera(next);
++    mapRef.current?.setCameraPosition?.(next);
++  };
++
++  return (
++    <View style={styles.root}>
++      <HMSMap
++        ref={mapRef}
++        style={styles.map}
++        camera={camera}
++        useAnimation
++        myLocationEnabled
++        myLocationButtonEnabled={false}
++        zoomControlsEnabled={false}
++        compassEnabled={false}
++      />
++
++      <Pressable style={styles.gpsBtn} onPress={flyToUser}>
++        <Text style={styles.gpsBtnTxt}>Center to GPS</Text>
++      </Pressable>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  root: { flex: 1 },
++  map: { flex: 1 },
++  gpsBtn: {
++    position: "absolute",
++    bottom: 20,
++    right: 16,
++    backgroundColor: "rgba(0,0,0,0.75)",
++    paddingHorizontal: 14,
++    paddingVertical: 10,
++    borderRadius: 20,
++  },
++  gpsBtnTxt: { color: "#fff", fontWeight: "700", fontSize: 12 },
++});
+diff --git a/src/components/map/pins.ts b/src/components/map/pins.ts
+new file mode 100644
+index 0000000..7d37987
+--- /dev/null
++++ b/src/components/map/pins.ts
+@@ -0,0 +1,54 @@
++// Static pin images for HMS Map Kit markers. HMS's React Native Marker
++// (unlike react-native-maps') takes an image `icon`, not arbitrary JSX
++// children — these are pre-rendered to visually match the custom marker
++// Views used on the Google/react-native-maps side (see assets/map-pins/
++// and gen_pins.py-style source if you need to regenerate them).
++//
++// require() paths must be static for Metro to bundle them. HMS's
++// BitmapDescriptor marker icon takes a { uri } string, not a raw require()
++// module id (that's react-native-maps'/<Image>'s convention) — resolve
++// each through Image.resolveAssetSource to get a usable uri.
++import { Image } from "react-native";
++
++function pin(mod: number) {
++  return Image.resolveAssetSource(mod).uri;
++}
++
++const RAW = {
++  pickup: require("../../../assets/map-pins/pickup.png"),
++  destination: require("../../../assets/map-pins/destination.png"),
++  driver: require("../../../assets/map-pins/driver.png"),
++  request: require("../../../assets/map-pins/request-pin.png"),
++  stopDone: require("../../../assets/map-pins/stop-done.png"),
++  stop: [
++    require("../../../assets/map-pins/stop-1.png"),
++    require("../../../assets/map-pins/stop-2.png"),
++    require("../../../assets/map-pins/stop-3.png"),
++    require("../../../assets/map-pins/stop-4.png"),
++    require("../../../assets/map-pins/stop-5.png"),
++    require("../../../assets/map-pins/stop-6.png"),
++    require("../../../assets/map-pins/stop-7.png"),
++    require("../../../assets/map-pins/stop-8.png"),
++    require("../../../assets/map-pins/stop-9.png"),
++  ],
++};
++
++// Pre-resolved { uri } BitmapDescriptors, ready to pass straight to an
++// HMSMarker's `icon` prop.
++export const PINS = {
++  pickup: { uri: pin(RAW.pickup) },
++  destination: { uri: pin(RAW.destination) },
++  driver: { uri: pin(RAW.driver) },
++  request: { uri: pin(RAW.request) },
++  stopDone: { uri: pin(RAW.stopDone) },
++  stop: RAW.stop.map((m: number) => ({ uri: pin(m) })),
++};
++
++// HMS stop pins only go up to 9 explicit numbered assets — beyond that,
++// reuse the last one rather than crashing (multi-stop rides this long are
++// not expected in practice, but this keeps it non-fatal).
++export function stopPin(indexOneBased: number, reached: boolean) {
++  if (reached) return PINS.stopDone;
++  const i = Math.min(indexOneBased, PINS.stop.length) - 1;
++  return PINS.stop[i];
++}
+diff --git a/src/hooks/useMobileServiceProvider.ts b/src/hooks/useMobileServiceProvider.ts
+new file mode 100644
+index 0000000..325794b
+--- /dev/null
++++ b/src/hooks/useMobileServiceProvider.ts
+@@ -0,0 +1,17 @@
++import { useEffect, useState } from "react";
++import { detectMobileServiceProvider, MobileServiceProvider } from "../lib/mobileServices";
++
++// Returns null while detection is in flight (first render, always Android-
++// only work), then "gms" or "hms". Map screens use this to pick between
++// react-native-maps (PROVIDER_GOOGLE) and HMS Map Kit.
++export function useMobileServiceProvider(): MobileServiceProvider | null {
++  const [provider, setProvider] = useState<MobileServiceProvider | null>(null);
++
++  useEffect(() => {
++    let mounted = true;
++    detectMobileServiceProvider().then((p) => { if (mounted) setProvider(p); });
++    return () => { mounted = false; };
++  }, []);
++
++  return provider;
++}
+diff --git a/src/lib/dataExport.ts b/src/lib/dataExport.ts
+new file mode 100644
+index 0000000..b3dbfdc
+--- /dev/null
++++ b/src/lib/dataExport.ts
+@@ -0,0 +1,214 @@
++// Backs the "Request my data" row on the Privacy screen
++// (src/screens/PrivacyScreen.tsx). Pulls every ride the signed-in rider
++// has ever been party to — any status, no date bounds — via
++// get_rider_data_export (20260805120000_rider_data_export.sql), then
++// renders it into a branded, shareable PDF using the same on-device
++// expo-print → share-sheet approach as the spending report
++// (src/lib/spendingReport.ts) and driver statements (src/lib/statements.ts).
++
++import { supabase } from "./supabase";
++import { formatFare } from "./rides";
++import { PAYMENT_METHOD_LABELS, PaymentMethod } from "./payments";
++
++export type RideDataRecord = {
++  trip_id: string;
++  status: string;
++  pickup_label: string | null;
++  pickup_address: string | null;
++  destination_label: string | null;
++  destination_address: string | null;
++  ride_tier: string | null;
++  requested_at: string;
++  accepted_at: string | null;
++  completed_at: string | null;
++  cancelled_at: string | null;
++  cancelled_by: string | null;
++  estimated_distance_km: number | null;
++  actual_distance_km: number | null;
++  estimated_fare_cents: number | null;
++  final_fare_cents: number | null;
++  cancellation_fee_cents: number | null;
++  payment_method: PaymentMethod;
++  payment_status: string;
++  payment_reference: string | null;
++  driver_first_name: string | null;
++  driver_last_name: string | null;
++  driver_vehicle_make: string | null;
++  driver_vehicle_model: string | null;
++  driver_license_plate: string | null;
++};
++
++export async function getMyRideDataExport(): Promise<RideDataRecord[]> {
++  const { data, error } = await supabase.rpc("get_rider_data_export");
++  if (error) throw error;
++  return (data ?? []) as RideDataRecord[];
++}
++
++// The amount actually paid on a ride — final fare if the trip completed
++// and was charged, cancellation fee if it was cancelled with a fee, else
++// nothing was paid (still-pending / cancelled-without-fee / no-show).
++export function amountPaidCents(r: RideDataRecord): number {
++  if (r.status === "completed") return r.final_fare_cents ?? 0;
++  if (r.status === "cancelled") return r.cancellation_fee_cents ?? 0;
++  return 0;
++}
++
++export function driverDisplayName(r: RideDataRecord): string {
++  const name = [r.driver_first_name, r.driver_last_name].filter(Boolean).join(" ").trim();
++  return name || "—";
++}
++
++export function driverVehicleDisplay(r: RideDataRecord): string {
++  const car = [r.driver_vehicle_make, r.driver_vehicle_model].filter(Boolean).join(" ").trim();
++  if (!car && !r.driver_license_plate) return "—";
++  return [car || null, r.driver_license_plate ? `(${r.driver_license_plate})` : null]
++    .filter(Boolean)
++    .join(" ");
++}
++
++export type RideDataSummary = {
++  totalTrips: number;
++  completedTrips: number;
++  cancelledTrips: number;
++  totalDistanceKm: number;
++  totalPaidCents: number;
++  paymentMethodBreakdown: Partial<Record<PaymentMethod, number>>;
++};
++
++export function summarizeRideData(rides: RideDataRecord[]): RideDataSummary {
++  const summary: RideDataSummary = {
++    totalTrips: rides.length,
++    completedTrips: 0,
++    cancelledTrips: 0,
++    totalDistanceKm: 0,
++    totalPaidCents: 0,
++    paymentMethodBreakdown: {},
++  };
++
++  for (const r of rides) {
++    if (r.status === "completed") summary.completedTrips += 1;
++    if (r.status === "cancelled") summary.cancelledTrips += 1;
++    summary.totalDistanceKm += r.actual_distance_km ?? 0;
++    const paid = amountPaidCents(r);
++    summary.totalPaidCents += paid;
++    if (paid > 0) {
++      summary.paymentMethodBreakdown[r.payment_method] =
++        (summary.paymentMethodBreakdown[r.payment_method] ?? 0) + paid;
++    }
++  }
++
++  return summary;
++}
++
++function fmtDate(iso: string | null): string {
++  if (!iso) return "—";
++  return new Date(iso).toLocaleDateString("en-ZA", {
++    day: "2-digit",
++    month: "short",
++    year: "numeric",
++  });
++}
++
++function fmtKm(km: number | null): string {
++  return km != null ? `${km.toFixed(1)} km` : "—";
++}
++
++function statusLabel(status: string): string {
++  switch (status) {
++    case "completed": return "Completed";
++    case "cancelled": return "Cancelled";
++    case "scheduled": return "Scheduled";
++    default: return status.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
++  }
++}
++
++export async function exportRideDataPdf(params: {
++  riderName: string;
++  rides: RideDataRecord[];
++}) {
++  const Print = await import("expo-print");
++  const Sharing = await import("expo-sharing");
++  const { brandStyles, brandHeader, brandFooter, makeDocRef } = await import("./pdfBranding");
++
++  const summary = summarizeRideData(params.rides);
++  const docRef = makeDocRef("DATA", new Date());
++
++  const paymentBreakdownRows = (Object.entries(summary.paymentMethodBreakdown) as [PaymentMethod, number][])
++    .map(([method, cents]) => `${PAYMENT_METHOD_LABELS[method] ?? method}: ${formatFare(cents)}`)
++    .join(" · ");
++
++  const rows = params.rides
++    .map((r) => {
++      const trip = [r.pickup_label || r.pickup_address, r.destination_label || r.destination_address]
++        .map((s) => s || "—")
++        .join(" → ");
++      const paid = amountPaidCents(r);
++      return `
++        <tr>
++          <td>${fmtDate(r.completed_at || r.cancelled_at || r.requested_at)}</td>
++          <td>${trip}</td>
++          <td>${statusLabel(r.status)}</td>
++          <td>${fmtKm(r.actual_distance_km ?? r.estimated_distance_km)}</td>
++          <td>${paid > 0 ? formatFare(paid) : "—"}</td>
++          <td>${PAYMENT_METHOD_LABELS[r.payment_method] ?? r.payment_method}</td>
++          <td>${driverDisplayName(r)}</td>
++          <td>${driverVehicleDisplay(r)}</td>
++        </tr>`;
++    })
++    .join("");
++
++  const html = `
++    <html>
++      <head>
++        <meta charset="utf-8" />
++        <style>${brandStyles()}
++          table { font-size: 9.5px; }
++        </style>
++      </head>
++      <body>
++        ${brandHeader("Your Ride Data", docRef)}
++
++        <div class="party-block">
++          <div class="party">
++            <div class="label">Rider</div>
++            <div class="name">${params.riderName}</div>
++          </div>
++          <div class="party" style="text-align:right">
++            <div class="label">Covering</div>
++            <div class="name">All rides on record</div>
++          </div>
++        </div>
++
++        <div class="summary">
++          <div class="card"><div class="label">Total Trips</div><div class="value">${summary.totalTrips}</div></div>
++          <div class="card"><div class="label">Completed</div><div class="value">${summary.completedTrips}</div></div>
++          <div class="card"><div class="label">Total Distance</div><div class="value">${summary.totalDistanceKm.toFixed(1)} km</div></div>
++          <div class="card highlight"><div class="label">Total Paid</div><div class="value">${formatFare(summary.totalPaidCents)}</div></div>
++        </div>
++
++        ${paymentBreakdownRows ? `<div class="party" style="margin-bottom:16px;"><div class="label">By Payment Method</div><div class="detail">${paymentBreakdownRows}</div></div>` : ""}
++
++        <table>
++          <thead>
++            <tr>
++              <th>Date</th><th>Trip</th><th>Status</th><th>Distance</th>
++              <th class="num">Paid</th><th>Payment</th><th>Driver</th><th>Vehicle</th>
++            </tr>
++          </thead>
++          <tbody>
++            ${rows || `<tr><td colspan="8" class="empty-note">No rides on record.</td></tr>`}
++          </tbody>
++        </table>
++
++        ${brandFooter()}
++      </body>
++    </html>
++  `;
++
++  const { uri } = await Print.printToFileAsync({ html });
++  const canShare = await Sharing.isAvailableAsync();
++  if (canShare) {
++    await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Your Ride Data" });
++  }
++  return uri;
++}
+diff --git a/src/lib/locationService.ts b/src/lib/locationService.ts
+new file mode 100644
+index 0000000..1d2f12d
+--- /dev/null
++++ b/src/lib/locationService.ts
+@@ -0,0 +1,116 @@
++// Unified location API — same shape as expo-location's, but routes actual
++// position fixes through HMS Location Kit on Huawei/Honor devices without
++// Google Play Services. Permission requests stay on expo-location
++// everywhere: ACCESS_FINE_LOCATION is a standard Android runtime
++// permission, not a Google Play Services feature, so it works identically
++// on GMS and HMS hardware.
++//
++// Drop-in usage: replace `import * as Location from "expo-location"` with
++// `import * as Location from "./locationService"` in map/location call
++// sites. Same function names, same return shape.
++//
++// Requires (once HMS setup is done — see app.json / plugins/withHmsCore.js):
++//   npm install @hmscore/react-native-hms-location
++// Until installed, HMS devices fall back to expo-location, which will
++// likely time out — that's the exact bug this file fixes once the
++// package is in place.
++import * as ExpoLocation from "expo-location";
++import { detectMobileServiceProvider } from "./mobileServices";
++
++export const Accuracy = ExpoLocation.Accuracy;
++
++export type LocationObject = {
++  coords: {
++    latitude: number;
++    longitude: number;
++    altitude: number | null;
++    accuracy: number | null;
++    heading: number | null;
++    speed: number | null;
++  };
++  timestamp: number;
++};
++
++export async function requestForegroundPermissionsAsync() {
++  // Standard Android runtime permission — identical path on GMS and HMS.
++  return ExpoLocation.requestForegroundPermissionsAsync();
++}
++
++export async function getForegroundPermissionsAsync() {
++  return ExpoLocation.getForegroundPermissionsAsync();
++}
++
++function toLocationObject(hmsLoc: any): LocationObject {
++  // HMS's Location interface has no `altitude` field (latitude, longitude,
++  // speed, bearing, accuracy, time — see @hmscore/react-native-hms-location's
++  // type defs), unlike expo-location's LocationObject. Always null here.
++  return {
++    coords: {
++      latitude: hmsLoc.latitude,
++      longitude: hmsLoc.longitude,
++      altitude: null,
++      accuracy: hmsLoc.accuracy ?? null,
++      heading: hmsLoc.bearing ?? null,
++      speed: hmsLoc.speed ?? null,
++    },
++    timestamp: hmsLoc.time ?? Date.now(),
++  };
++}
++
++async function getHmsLocation(): Promise<LocationObject> {
++  const mod = await import("@hmscore/react-native-hms-location");
++  const HMSLocation = mod.default;
++  const result = await HMSLocation.FusedLocation.Native.getLastLocation();
++  return toLocationObject(result);
++}
++
++export async function getCurrentPositionAsync(
++  options: { accuracy?: any } = {}
++): Promise<LocationObject> {
++  const provider = await detectMobileServiceProvider();
++  if (provider === "hms") {
++    try {
++      return await getHmsLocation();
++    } catch {
++      // HMS package not installed yet, or the call failed — fall back to
++      // expo-location so the app degrades to "may not get a fix" rather
++      // than crashing outright.
++    }
++  }
++  return ExpoLocation.getCurrentPositionAsync(options as any);
++}
++
++export type LocationSubscription = { remove: () => void };
++
++// Continuous updates. On HMS, this polls getLastLocation on an interval
++// rather than subscribing to HMS's native update stream — simpler and
++// safer than guessing at HMS's callback-registration API shape, and the
++// app already polls driver position on a similar cadence elsewhere
++// (POLL_INTERVAL_MS in driverStatus/presence), so the practical behavior
++// is equivalent. Swap this for a true push subscription
++// (HMSLocation.FusedLocation.Native.requestLocationUpdatesWithCallback)
++// later if battery testing shows polling isn't tight enough.
++export async function watchPositionAsync(
++  options: { accuracy?: any; timeInterval?: number; distanceInterval?: number },
++  callback: (location: LocationObject) => void
++): Promise<LocationSubscription> {
++  const provider = await detectMobileServiceProvider();
++
++  if (provider === "hms") {
++    let cancelled = false;
++    const intervalMs = options.timeInterval ?? 4000;
++    const poll = async () => {
++      if (cancelled) return;
++      try {
++        callback(await getHmsLocation());
++      } catch {
++        // transient miss — next tick will retry
++      }
++    };
++    poll();
++    const handle = setInterval(poll, intervalMs);
++    return { remove: () => { cancelled = true; clearInterval(handle); } };
++  }
++
++  return ExpoLocation.watchPositionAsync(options as any, callback as any);
++}
+diff --git a/src/lib/mobileServices.ts b/src/lib/mobileServices.ts
+new file mode 100644
+index 0000000..c8d21f8
+--- /dev/null
++++ b/src/lib/mobileServices.ts
+@@ -0,0 +1,74 @@
++// Detects whether the device runs on Google Mobile Services (GMS) or
++// Huawei Mobile Services (HMS), so map + location code can pick the right
++// backend at runtime.
++//
++// Why this exists: react-native-maps' PROVIDER_GOOGLE and expo-location
++// both depend on Google Play Services. Huawei/Honor phones released after
++// the 2019 US trade restrictions (P40 onward, Mate 30 onward, most 2020+
++// Honor devices) ship WITHOUT Google Play Services — they run HMS Core
++// instead. On those devices, PROVIDER_GOOGLE renders a blank/stuck map and
++// expo-location silently fails to get a fix, since there's no Fused
++// Location Provider to call.
++//
++// Requires (once you have Huawei AppGallery Connect set up):
++//   npm install @hmscore/react-native-hms-availability
++// Until that package is installed, detection falls back to a
++// manufacturer-only heuristic — see the comment below.
++import { Platform } from "react-native";
++import * as Device from "expo-device";
++
++export type MobileServiceProvider = "gms" | "hms";
++
++// Manufacturers whose current lineup ships HMS-only. Older devices from
++// these brands (pre-2019, e.g. P30, Mate 20) may still carry GMS — the
++// runtime HMS Core check below is the source of truth; this list only
++// decides which check we bother running first.
++const HMS_MANUFACTURERS = ["HUAWEI", "HONOR"];
++
++let cached: MobileServiceProvider | null = null;
++
++export async function detectMobileServiceProvider(): Promise<MobileServiceProvider> {
++  // iOS and web always use Apple Maps / browser geolocation — no GMS/HMS
++  // split exists there, so there's nothing to detect.
++  if (Platform.OS !== "android") return "gms";
++  if (cached) return cached;
++
++  const manufacturer = (Device.manufacturer || "").toUpperCase();
++  if (!HMS_MANUFACTURERS.includes(manufacturer)) {
++    cached = "gms";
++    return cached;
++  }
++
++  // On known HMS-first hardware, confirm HMS Core is actually installed
++  // and usable rather than assuming from manufacturer alone.
++  try {
++    // Lazy import: this package isn't installed until HMS setup is done
++    // (see app.json / plugins/withHmsCore.js). Until then this throws and
++    // we fall through to the manufacturer heuristic below.
++    const mod = await import("@hmscore/react-native-hms-availability");
++    // The package's shipped .d.ts doesn't declare a default export even
++    // though the runtime module has one (an already-instantiated
++    // HMSAvailability) — cast through `any` to work around the
++    // incomplete upstream types rather than fighting them here.
++    const HMSAvailability = (mod as any).default;
++    // Resolves to a numeric result code; 0 (ErrorCode.HMS_CORE_APK_AVAILABLE)
++    // means HMS Core is installed and up to date.
++    const resultCode = await HMSAvailability.isHuaweiMobileServicesAvailable();
++    cached = resultCode === 0 ? "hms" : "gms";
++  } catch {
++    // Package not installed yet, or the native check itself failed.
++    // Route away from Google Maps on known-HMS hardware anyway — a blank
++    // Google Maps view is a worse failure mode than assuming HMS on a
++    // Huawei/Honor phone that happens to still have GMS.
++    cached = "hms";
++  }
++
++  return cached;
++}
++
++// Exposed for tests and for the (rare) case where a user's Play/HMS Core
++// install state changes mid-session — e.g. they just installed HMS Core
++// after being prompted.
++export function resetMobileServiceProviderCache() {
++  cached = null;
++}
+diff --git a/src/screens/PrivacyScreen.tsx b/src/screens/PrivacyScreen.tsx
+index c09d592..a824181 100644
+--- a/src/screens/PrivacyScreen.tsx
++++ b/src/screens/PrivacyScreen.tsx
+@@ -10,15 +10,37 @@ import RowItem from "../components/RowItem";
+ import PrimaryButton from "../components/PrimaryButton";
+ import { COLORS, SPACE } from "../theme/tokens";
+ import { deleteAccount, getCurrentProfile } from "../lib/auth";
++import { getMyRideDataExport, exportRideDataPdf } from "../lib/dataExport";
+ 
+ export default function PrivacyScreen() {
+   const [deleting, setDeleting] = useState(false);
++  const [requestingData, setRequestingData] = useState(false);
+   const [role, setRole] = useState<"rider" | "driver">("rider");
+ 
+   useEffect(() => {
+     getCurrentProfile().then((p) => { if (p) setRole(p.role); }).catch(() => {});
+   }, []);
+ 
++  const handleRequestData = async () => {
++    if (requestingData) return;
++    setRequestingData(true);
++    try {
++      const profile = await getCurrentProfile();
++      const riderName = profile
++        ? [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim()
++        : "";
++      const rides = await getMyRideDataExport();
++      await exportRideDataPdf({ riderName: riderName || "Rider", rides });
++    } catch (e: any) {
++      Alert.alert(
++        "Couldn't prepare your data",
++        e?.message ?? "Something went wrong. Please try again."
++      );
++    } finally {
++      setRequestingData(false);
++    }
++  };
++
+   const handleDeleteAccount = () => {
+     // First confirmation
+     Alert.alert(
+@@ -94,8 +116,13 @@ export default function PrivacyScreen() {
+         <RowItem
+           icon="download-outline"
+           title="Request my data"
+-          subtitle="Get a copy of your personal data"
+-          onPress={() => {}}
++          subtitle={
++            requestingData
++              ? "Preparing your data…"
++              : "Get a copy of your ride history, payments, and drivers"
++          }
++          onPress={handleRequestData}
++          showChevron={!requestingData}
+         />
+         <RowItem
+           icon="document-text-outline"
+diff --git a/supabase/migrations/20260805120000_rider_data_export.sql b/supabase/migrations/20260805120000_rider_data_export.sql
+new file mode 100644
+index 0000000..0c4510e
+--- /dev/null
++++ b/supabase/migrations/20260805120000_rider_data_export.sql
+@@ -0,0 +1,82 @@
++-- Rider "Request my data" export — backs the Privacy screen's "Request
++-- my data" row (previously a no-op button, src/screens/PrivacyScreen.tsx).
++--
++-- Unlike get_rider_spending (20260803160000_rider_spending_report.sql),
++-- which is scoped to completed rides in a billing period for the
++-- spending report, this returns EVERY ride the rider has ever been
++-- party to — any status, no date bounds — since a data-access request
++-- needs to be complete, not just the paid trips. It also joins in the
++-- driver's name and vehicle details per ride (from profiles), which the
++-- spending report doesn't need but a full data export does.
++create or replace function public.get_rider_data_export()
++returns table (
++  trip_id uuid,
++  status text,
++  pickup_label text,
++  pickup_address text,
++  destination_label text,
++  destination_address text,
++  ride_tier text,
++  requested_at timestamptz,
++  accepted_at timestamptz,
++  completed_at timestamptz,
++  cancelled_at timestamptz,
++  cancelled_by text,
++  estimated_distance_km numeric,
++  actual_distance_km numeric,
++  estimated_fare_cents integer,
++  final_fare_cents integer,
++  cancellation_fee_cents integer,
++  payment_method text,
++  payment_status text,
++  payment_reference text,
++  driver_first_name text,
++  driver_last_name text,
++  driver_vehicle_make text,
++  driver_vehicle_model text,
++  driver_license_plate text
++)
++language plpgsql
++security definer
++set search_path = public
++as $$
++begin
++  if auth.uid() is null then
++    raise exception 'Not signed in.';
++  end if;
++
++  return query
++    select
++      r.id,
++      r.status::text,
++      r.pickup_label,
++      r.pickup_address,
++      r.destination_label,
++      r.destination_address,
++      r.ride_tier::text,
++      r.requested_at,
++      r.accepted_at,
++      r.completed_at,
++      r.cancelled_at,
++      r.cancelled_by::text,
++      r.estimated_distance_km,
++      r.actual_distance_km,
++      r.estimated_fare_cents,
++      r.final_fare_cents,
++      r.cancellation_fee_cents,
++      r.payment_method::text,
++      r.payment_status::text,
++      r.payment_reference,
++      d.first_name,
++      d.last_name,
++      d.vehicle_make,
++      d.vehicle_model,
++      d.license_plate
++    from public.rides r
++    left join public.profiles d on d.id = r.driver_id
++    where r.rider_id = auth.uid()
++    order by r.requested_at desc;
++end;
++$$;
++
++grant execute on function public.get_rider_data_export() to authenticated;

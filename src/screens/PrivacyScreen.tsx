@@ -10,14 +10,36 @@ import RowItem from "../components/RowItem";
 import PrimaryButton from "../components/PrimaryButton";
 import { COLORS, SPACE } from "../theme/tokens";
 import { deleteAccount, getCurrentProfile } from "../lib/auth";
+import { getMyRideDataExport, exportRideDataPdf } from "../lib/dataExport";
 
 export default function PrivacyScreen() {
   const [deleting, setDeleting] = useState(false);
+  const [requestingData, setRequestingData] = useState(false);
   const [role, setRole] = useState<"rider" | "driver">("rider");
 
   useEffect(() => {
     getCurrentProfile().then((p) => { if (p) setRole(p.role); }).catch(() => {});
   }, []);
+
+  const handleRequestData = async () => {
+    if (requestingData) return;
+    setRequestingData(true);
+    try {
+      const profile = await getCurrentProfile();
+      const riderName = profile
+        ? [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim()
+        : "";
+      const rides = await getMyRideDataExport();
+      await exportRideDataPdf({ riderName: riderName || "Rider", rides });
+    } catch (e: any) {
+      Alert.alert(
+        "Couldn't prepare your data",
+        e?.message ?? "Something went wrong. Please try again."
+      );
+    } finally {
+      setRequestingData(false);
+    }
+  };
 
   const handleDeleteAccount = () => {
     // First confirmation
@@ -94,8 +116,13 @@ export default function PrivacyScreen() {
         <RowItem
           icon="download-outline"
           title="Request my data"
-          subtitle="Get a copy of your personal data"
-          onPress={() => {}}
+          subtitle={
+            requestingData
+              ? "Preparing your data…"
+              : "Get a copy of your ride history, payments, and drivers"
+          }
+          onPress={handleRequestData}
+          showChevron={!requestingData}
         />
         <RowItem
           icon="document-text-outline"

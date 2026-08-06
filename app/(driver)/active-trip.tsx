@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Alert, Linking, Pressable } from "react-native";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
+import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 
@@ -11,17 +12,15 @@ import SOSFab from "../../src/components/SOSFab";
 import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
+import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
+import { PINS, stopPin } from "../../src/components/map/pins";
 import {
   Ride, getRideById, subscribeToRide,
   advanceRideStatus, completeRide, cancelRide,
   updateDriverLocation, formatFare, statusLabel,
   RideStop, getRideStops, markStopReached,
 } from "../../src/lib/rides";
-<<<<<<< HEAD
 import { settleRidePayment, chargeRideCard, releaseRideCardReservation } from "../../src/lib/payments";
-=======
-import { settleRidePayment, chargeRideCard } from "../../src/lib/payments";
->>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
 
 // Simulates the driver moving from pickup toward destination in small steps.
 // Returns an array of [lng, lat] waypoints interpolated between two points.
@@ -44,6 +43,7 @@ function interpolateWaypoints(
 export default function ActiveTripScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const mapRef = useRef<MapView>(null);
+  const mobileServiceProvider = useMobileServiceProvider();
   const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [ride, setRide] = useState<Ride | null>(null);
@@ -355,32 +355,62 @@ export default function ActiveTripScreen() {
   return (
     <Screen>
       <View style={styles.root}>
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_GOOGLE}
-          style={StyleSheet.absoluteFill}
-          initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
-        >
-          <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={styles.markerPickup}>
-              <Ionicons name="ellipse" size={10} color="#000" />
-            </View>
-          </Marker>
-
-          {stops.map((stop, i) => (
-            <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
-              <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
-                <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+        {mobileServiceProvider === "hms" ? (
+          // HMS Map Kit (Huawei/Honor devices without Google Play
+          // Services — see src/lib/mobileServices.ts). Not build-tested
+          // against real HMS Core hardware; verify prop names once
+          // @hmscore/react-native-hms-map is installed.
+          <HMSMap
+            style={StyleSheet.absoluteFill}
+            camera={{ target: { latitude: ride.pickup_lat, longitude: ride.pickup_lng }, zoom: 14 }}
+          >
+            <HMSMarker
+              coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }}
+              icon={PINS.pickup}
+              markerAnchor={[0.5, 0.5]}
+            />
+            {stops.map((stop, i) => (
+              <HMSMarker
+                key={stop.id}
+                coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+                icon={stopPin(i + 1, !!stop.reached_at)}
+                markerAnchor={[0.5, 0.5]}
+              />
+            ))}
+            <HMSMarker
+              coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }}
+              icon={PINS.destination}
+              markerAnchor={[0.5, 1]}
+            />
+          </HMSMap>
+        ) : (
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_GOOGLE}
+            style={StyleSheet.absoluteFill}
+            initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
+          >
+            <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={styles.markerPickup}>
+                <Ionicons name="ellipse" size={10} color="#000" />
               </View>
             </Marker>
-          ))}
 
-          <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
-            <View style={styles.markerDest}>
-              <Ionicons name="location" size={26} color={COLORS.red} />
-            </View>
-          </Marker>
-        </MapView>
+            {stops.map((stop, i) => (
+              <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
+                <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
+                  <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+                </View>
+              </Marker>
+            ))}
+
+            <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
+              <View style={styles.markerDest}>
+                <Ionicons name="location" size={26} color={COLORS.red} />
+              </View>
+            </Marker>
+          </MapView>
+        )}
 
         <SOSFab rideId={ride.id} role="driver" />
         <SupportChatFab role="driver" bottom={280} />

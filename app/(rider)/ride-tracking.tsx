@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, TextInput } from "react-native";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
+import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 
@@ -13,6 +14,8 @@ import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { bearing } from "../../src/lib/geo";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
+import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
+import { PINS, stopPin } from "../../src/components/map/pins";
 import {
   Ride, getRideById, subscribeToRide, cancelRide,
   formatFare, statusLabel, TIER_CONFIG,
@@ -38,6 +41,7 @@ function etaMinutes(ride: Ride): number | null {
 export default function RideTrackingScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const mapRef = useRef<MapView>(null);
+  const mobileServiceProvider = useMobileServiceProvider();
   const [ride, setRide] = useState<Ride | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,55 +318,97 @@ export default function RideTrackingScreen() {
   return (
     <Screen>
       <View style={styles.root}>
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_GOOGLE}
-          style={StyleSheet.absoluteFill}
-          initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
-        >
-          {/* Pickup — pulses while we're still searching for a driver */}
-          <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={styles.markerPickupWrap}>
-              {ride.status === "requested" && (
-                <View style={styles.pulseWrap} pointerEvents="none">
-                  <PulsingDot color={COLORS.red} size={12} />
+        {mobileServiceProvider === "hms" ? (
+          // HMS Map Kit (Huawei/Honor devices without Google Play
+          // Services — see src/lib/mobileServices.ts). HMS markers rotate
+          // via a `rotation` prop on the marker object rather than a CSS
+          // transform, which maps cleanly onto driverBearing. The pickup
+          // pulse animation has no HMS equivalent here — it's a static
+          // pin instead. Not build-tested against real HMS Core hardware;
+          // verify prop names once @hmscore/react-native-hms-map is
+          // installed.
+          <HMSMap
+            style={StyleSheet.absoluteFill}
+            camera={{ target: { latitude: ride.pickup_lat, longitude: ride.pickup_lng }, zoom: 14 }}
+          >
+            <HMSMarker
+              coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }}
+              icon={PINS.pickup}
+              markerAnchor={[0.5, 0.5]}
+            />
+            {stops.map((stop, i) => (
+              <HMSMarker
+                key={stop.id}
+                coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+                icon={stopPin(i + 1, !!stop.reached_at)}
+                markerAnchor={[0.5, 0.5]}
+              />
+            ))}
+            <HMSMarker
+              coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }}
+              icon={PINS.destination}
+              markerAnchor={[0.5, 1]}
+            />
+            {driverPos && (
+              <HMSMarker
+                coordinate={{ latitude: driverPos.lat, longitude: driverPos.lng }}
+                icon={PINS.driver}
+                markerAnchor={[0.5, 0.5]}
+                rotation={driverBearing}
+              />
+            )}
+          </HMSMap>
+        ) : (
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_GOOGLE}
+            style={StyleSheet.absoluteFill}
+            initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
+          >
+            {/* Pickup — pulses while we're still searching for a driver */}
+            <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={styles.markerPickupWrap}>
+                {ride.status === "requested" && (
+                  <View style={styles.pulseWrap} pointerEvents="none">
+                    <PulsingDot color={COLORS.red} size={12} />
+                  </View>
+                )}
+                <View style={styles.markerPickup}>
+                  <Ionicons name="ellipse" size={10} color="#000" />
                 </View>
-              )}
-              <View style={styles.markerPickup}>
-                <Ionicons name="ellipse" size={10} color="#000" />
-              </View>
-            </View>
-          </Marker>
-
-          {/* Stops */}
-          {stops.map((stop, i) => (
-            <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
-              <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
-                <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
               </View>
             </Marker>
-          ))}
 
-          {/* Destination */}
-          <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
-            <View style={styles.markerDest}>
-              <Ionicons name="location" size={26} color={COLORS.red} />
-            </View>
-          </Marker>
+            {/* Stops */}
+            {stops.map((stop, i) => (
+              <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
+                <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
+                  <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
+                </View>
+              </Marker>
+            ))}
 
-          {/* Driver — animates smoothly between updates and rotates to face
-              its direction of travel toward pickup/destination. */}
-          {driverPos && (
-            <Marker
-              coordinate={{ latitude: driverPos.lat, longitude: driverPos.lng }}
-              anchor={{ x: 0.5, y: 0.5 }}
-            >
-              <View style={[styles.driverDot, { transform: [{ rotate: `${driverBearing}deg` }] }]}>
-                <Ionicons name="navigate" size={16} color="#000" />
+            {/* Destination */}
+            <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
+              <View style={styles.markerDest}>
+                <Ionicons name="location" size={26} color={COLORS.red} />
               </View>
             </Marker>
-          )}
-        </MapView>
+
+            {/* Driver — animates smoothly between updates and rotates to face
+                its direction of travel toward pickup/destination. */}
+            {driverPos && (
+              <Marker
+                coordinate={{ latitude: driverPos.lat, longitude: driverPos.lng }}
+                anchor={{ x: 0.5, y: 0.5 }}
+              >
+                <View style={[styles.driverDot, { transform: [{ rotate: `${driverBearing}deg` }] }]}>
+                  <Ionicons name="navigate" size={16} color="#000" />
+                </View>
+              </Marker>
+            )}
+          </MapView>
+        )}
 
         <SOSFab rideId={ride.id} role="rider" />
         <SupportChatFab role="rider" bottom={280} />
