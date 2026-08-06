@@ -17,6 +17,7 @@ import DraggableSheet from "../../src/components/DraggableSheet";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { useSOSTrigger } from "../../src/hooks/useSOSTrigger";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
@@ -643,6 +644,7 @@ export default function RiderHome() {
       const ride = await requestRide(commonParams);
 
       // The ride already defaults to the rider's saved payment
+<<<<<<< HEAD
       // preference server-side (via a DB trigger). This only needs to
       // run when they picked something different just for this trip —
       // but since a driver can accept (and, for card rides, trigger a
@@ -660,6 +662,16 @@ export default function RiderHome() {
             console.warn("[rider/home] Retry also failed, ride will use the saved default:", e2?.message ?? e2);
           }
         }
+=======
+      // preference server-side (via a DB trigger), but this covers the
+      // case where they picked something different just for this trip —
+      // best-effort, same reasoning as the fare offer below: shouldn't
+      // block getting to tracking if it fails.
+      try {
+        await setRidePaymentMethod(ride.id, paymentMethod);
+      } catch (e: any) {
+        console.warn("[rider/home] Couldn't set ride payment method:", e?.message ?? e);
+>>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
       }
 
       // If a custom fare was set before requesting, send it the moment the
@@ -699,6 +711,7 @@ export default function RiderHome() {
     <Screen>
       <RiderHeader subtitle="Where to?" menuOpen={menuOpen} onMenu={() => setMenuOpen((v) => !v)} />
       <SOSFab role="rider" />
+      <SupportChatFab role="rider" />
 
       <View style={styles.root}>
         {/* ── MAP ── */}
@@ -1037,10 +1050,14 @@ export default function RiderHome() {
             </View>
 
             {/* Payment method — defaults to the rider's saved preference,
+<<<<<<< HEAD
                 overridable per ride. Shown before Request Ride so the
                 choice is made (or confirmed) before the ride is sent to
                 drivers, not after. */}
             <Text style={styles.paymentLabel}>Payment method</Text>
+=======
+                overridable per ride. */}
+>>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
             <View style={styles.paymentRow}>
               {(["cash", "wallet", "card"] as PaymentMethod[]).map((method) => {
                 const isSelected = paymentMethod === method;
@@ -1288,8 +1305,12 @@ const styles = StyleSheet.create({
     color: COLORS.text, fontSize: 14,
   },
   makeOfferLink: { color: COLORS.red, fontWeight: "800", fontSize: 13, textAlign: "center" },
+<<<<<<< HEAD
   paymentLabel: { color: COLORS.textDim, fontSize: 12, fontWeight: "700", marginTop: SPACE.sm },
   paymentRow: { flexDirection: "row", gap: 8, marginTop: 6 },
+=======
+  paymentRow: { flexDirection: "row", gap: 8, marginTop: SPACE.sm },
+>>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
   paymentChip: {
     flex: 1,
     flexDirection: "row",

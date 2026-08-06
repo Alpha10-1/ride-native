@@ -17,7 +17,11 @@ import {
   updateDriverLocation, formatFare, statusLabel,
   RideStop, getRideStops, markStopReached,
 } from "../../src/lib/rides";
+<<<<<<< HEAD
 import { settleRidePayment, chargeRideCard, releaseRideCardReservation } from "../../src/lib/payments";
+=======
+import { settleRidePayment, chargeRideCard } from "../../src/lib/payments";
+>>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
 
 // Simulates the driver moving from pickup toward destination in small steps.
 // Returns an array of [lng, lat] waypoints interpolated between two points.

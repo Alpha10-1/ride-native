@@ -65,7 +65,11 @@ export default function StatementsScreen() {
     setExporting(true);
     try {
       const { start } = getPeriodBounds(period, anchor);
+<<<<<<< HEAD
       const { savedToDevice } = await exportStatementPdf({
+=======
+      await exportStatementPdf({
+>>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
         driverName,
         vehicleLabel,
         period,

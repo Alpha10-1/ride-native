@@ -7,7 +7,11 @@ import { Ionicons } from "@expo/vector-icons";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
+<<<<<<< HEAD
 import { resetTo, navigateFromMenu } from "../../src/lib/navigation";
+=======
+import { resetTo } from "../../src/lib/navigation";
+>>>>>>> fd815d73eb6cc12ad72561a84bb4cb7da0111847
 
 import Screen from "../../src/components/Screen";
 import RiderHeader from "../../src/components/RiderHeader";
@@ -16,6 +20,7 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import RowItem from "../../src/components/RowItem";
 import SOSFab from "../../src/components/SOSFab";
+import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { regionFromCenterZoom } from "../../src/lib/mapCamera";
 import {
@@ -375,6 +380,7 @@ export default function DriverHome() {
         onMenu={() => setMenuOpen((v) => !v)}
       />
       <SOSFab role="driver" />
+      <SupportChatFab role="driver" />
 
       <View style={styles.mapWrap}>
         {coords ? (
