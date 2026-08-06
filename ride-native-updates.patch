@@ -1346,10 +1346,10 @@ index 1bac02d..ba88510 100644
      "@supabase/supabase-js": "^2.108.2",
 diff --git a/plugins/withHmsCore.js b/plugins/withHmsCore.js
 new file mode 100644
-index 0000000..826801a
+index 0000000..69bdcaf
 --- /dev/null
 +++ b/plugins/withHmsCore.js
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,133 @@
 +// Wires Huawei Mobile Services (HMS Core) into the native Android build:
 +// the Huawei Maven repo, the AGConnect Gradle plugin, and copying
 +// agconnect-services.json into android/app/ during `expo prebuild`.
@@ -1408,6 +1408,12 @@ index 0000000..826801a
 +    // repo/classpath additions aren't gated on agconnect-services.json.
 +    let contents = config.modResults.contents;
 +
++    // TEMP DEBUG — remove once the build issue is confirmed fixed.
++    console.log("[withHmsCore] withHmsProjectGradle running. contents length:", contents.length);
++    console.log("[withHmsCore] already has huawei repo?", contents.includes(HUAWEI_MAVEN_REPO));
++    console.log("[withHmsCore] 'repositories {' match count:", (contents.match(/repositories\s*{/g) || []).length);
++    console.log("[withHmsCore] 'dependencies {' match count:", (contents.match(/dependencies\s*{/g) || []).length);
++
 +    if (!contents.includes(HUAWEI_MAVEN_REPO)) {
 +      // Add the Huawei Maven repo everywhere Google's/Maven Central's repo
 +      // is declared (buildscript.repositories and allprojects.repositories).
@@ -1423,6 +1429,9 @@ index 0000000..826801a
 +        (match) => `${match}\n        ${AGCONNECT_CLASSPATH}`
 +      );
 +    }
++
++    // TEMP DEBUG — remove once the build issue is confirmed fixed.
++    console.log("[withHmsCore] contents now has huawei repo?", contents.includes(HUAWEI_MAVEN_REPO));
 +
 +    config.modResults.contents = contents;
 +    return config;

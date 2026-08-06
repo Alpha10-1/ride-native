@@ -119,12 +119,21 @@ export async function registerUser(payload: RegisterPayload) {
   return user;
 }
 
+// Where the "Confirm new email address" link lands. Without this,
+// updateUser({ email }) falls back to the Supabase project's dashboard
+// Site URL (a localhost dev default), which the phone can't reach —
+// see PASSWORD_RESET_REDIRECT_URL below for the equivalent reset-link case.
+const EMAIL_CONFIRMATION_REDIRECT_URL = "ridenative://auth/confirm-email";
+
 // Sends a confirmation link to the person's real email, which — once
 // clicked — replaces their synthetic auth email with this real one. Safe
 // to call again later (e.g. from a "resend verification" button) if the
 // first email is missed or the address changes.
 export async function linkRecoveryEmail(realEmail: string) {
-  const { error } = await supabase.auth.updateUser({ email: realEmail.trim().toLowerCase() });
+  const { error } = await supabase.auth.updateUser(
+    { email: realEmail.trim().toLowerCase() },
+    { emailRedirectTo: EMAIL_CONFIRMATION_REDIRECT_URL }
+  );
   if (error) throw error;
 }
 
@@ -372,9 +381,11 @@ export async function completePasswordReset(newPassword: string) {
   if (error) throw error;
 }
 
-// Establishes a session from the recovery link's URL (opened via the
-// ridenative:// deep link). Supports both the modern PKCE `?code=` link
-// format and, as a fallback, the older `#access_token=` implicit format.
+// Establishes a session from an emailed auth link's URL (opened via the
+// ridenative:// deep link) — used by both the password-reset link and the
+// "confirm new email" link, since both just hand back a session token in
+// the same two shapes. Supports the modern PKCE `?code=` link format and,
+// as a fallback, the older `#access_token=` implicit format.
 export async function exchangeRecoverySession(url: string) {
   if (url.includes("code=")) {
     const { error } = await supabase.auth.exchangeCodeForSession(url);

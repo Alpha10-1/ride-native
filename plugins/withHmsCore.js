@@ -2,26 +2,36 @@
 // the Huawei Maven repo, the AGConnect Gradle plugin, and copying
 // agconnect-services.json into android/app/ during `expo prebuild`.
 //
-// Deliberately a no-op if agconnect-services.json isn't present at the
-// project root — that's the signal that HMS/AppGallery Connect setup
-// (see the Huawei Developer Console steps) hasn't been done yet. This
-// keeps `expo prebuild` working for anyone who hasn't done that setup,
-// instead of failing the whole Android build over a missing Huawei
-// config file.
+// IMPORTANT: the Huawei Maven repo (developer.huawei.com/repo) is added
+// UNCONDITIONALLY, regardless of whether agconnect-services.json exists.
+// This isn't optional — installing @hmscore/react-native-hms-map (etc.)
+// makes React Native's autolinking pull those modules' native Android
+// code into the build automatically, and that native code depends on
+// com.huawei.hms:* artifacts that only exist on Huawei's Maven repo. If
+// that repo isn't declared, Gradle fails to resolve those dependencies
+// even on a build that will never run on Huawei hardware — this repo is
+// public and needs no credentials, so there's no downside to always
+// including it.
+//
+// The AGConnect Gradle *plugin application* (`apply plugin:
+// "com.huawei.agconnect"`) is different — it actively parses
+// agconnect-services.json at build time and fails without it, so that
+// part (and copying the file into android/app/) stays gated on the file
+// being present.
 //
 // Usage — add to app.json's "plugins" array:
 //   ["./plugins/withHmsCore", {}]
 //
-// Requires, once agconnect-services.json is in place:
-//   npm install @hmscore/react-native-hms-map @hmscore/react-native-hms-location @hmscore/react-native-hms-availability
+// Requires: npm install @hmscore/react-native-hms-map @hmscore/react-native-hms-location @hmscore/react-native-hms-availability
 //
 // NOTE: this has not been run through an actual `expo prebuild` +
-// Android build — there's no HMS-registered app / agconnect-services.json
-// available in this environment to test against. Sanity-check the
-// generated android/build.gradle and android/app/build.gradle after your
-// first prebuild once you have real credentials, and compare against
-// Huawei's "Integrating the AppGallery Connect Plugin" docs if the build
-// fails.
+// Android build against real HMS credentials — the Maven-repo fix here
+// was verified against a real build failure, but the AGConnect
+// plugin-application path (once you have agconnect-services.json) still
+// hasn't been. Sanity-check android/build.gradle and
+// android/app/build.gradle after your first prebuild with real
+// credentials, and compare against Huawei's "Integrating the AppGallery
+// Connect Plugin" docs if it fails.
 const fs = require("fs");
 const path = require("path");
 const {
@@ -42,7 +52,8 @@ const AGCONNECT_APPLY = "apply plugin: 'com.huawei.agconnect'";
 
 function withHmsProjectGradle(config) {
   return withProjectBuildGradle(config, (config) => {
-    if (!hasAgConnectConfig(config.modRequest.projectRoot)) return config;
+    // Always runs — see the note at the top of this file for why the
+    // repo/classpath additions aren't gated on agconnect-services.json.
     let contents = config.modResults.contents;
 
     if (!contents.includes(HUAWEI_MAVEN_REPO)) {
@@ -68,6 +79,9 @@ function withHmsProjectGradle(config) {
 
 function withHmsAppGradle(config) {
   return withAppBuildGradle(config, (config) => {
+    // Gated: applying this plugin without agconnect-services.json present
+    // makes the AGConnect Gradle plugin itself fail, since it parses that
+    // file at build time.
     if (!hasAgConnectConfig(config.modRequest.projectRoot)) return config;
     let contents = config.modResults.contents;
 
