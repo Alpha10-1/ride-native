@@ -1244,6 +1244,92 @@ dBt-SZ{s#>}J`k!!br}Ev002ovPDHLkV1gqR%?SVi
 literal 0
 HcmV?d00001
 
+diff --git a/package-lock.json b/package-lock.json
+index 136e384..b71b99b 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -10,6 +10,9 @@
+       "dependencies": {
+         "@expo/metro-runtime": "~6.1.2",
+         "@expo/vector-icons": "^15.0.3",
++        "@hmscore/react-native-hms-availability": "^6.12.0-301",
++        "@hmscore/react-native-hms-location": "^6.16.0-302",
++        "@hmscore/react-native-hms-map": "^6.12.0-301",
+         "@react-native-async-storage/async-storage": "2.2.0",
+         "@react-native-community/datetimepicker": "8.4.4",
+         "@supabase/supabase-js": "^2.108.2",
+@@ -17,6 +20,7 @@
+         "expo-blur": "~15.0.8",
+         "expo-constants": "~18.0.13",
+         "expo-device": "~8.0.10",
++        "expo-file-system": "~19.0.23",
+         "expo-font": "~14.0.12",
+         "expo-image-picker": "~17.0.8",
+         "expo-linking": "~8.0.12",
+@@ -2232,6 +2236,37 @@
+         "excpretty": "build/cli.js"
+       }
+     },
++    "node_modules/@hmscore/react-native-hms-availability": {
++      "version": "6.12.0-301",
++      "resolved": "https://registry.npmjs.org/@hmscore/react-native-hms-availability/-/react-native-hms-availability-6.12.0-301.tgz",
++      "integrity": "sha512-BM1KUYZ2/nFeOKN0w9hNxM0S/YuuHLr5a3teba6pIKFrC8o4GuCLH7gv5P/AvIvaTBZliUK+eDoajgmrZ7Q4Ag==",
++      "license": "Apache-2.0",
++      "peerDependencies": {
++        "react": ">=16.6.0",
++        "react-native": ">=0.60.0 <1.0.x"
++      }
++    },
++    "node_modules/@hmscore/react-native-hms-location": {
++      "version": "6.16.0-302",
++      "resolved": "https://registry.npmjs.org/@hmscore/react-native-hms-location/-/react-native-hms-location-6.16.0-302.tgz",
++      "integrity": "sha512-rM7t8RNewQUVDZlvoPYDAcy9shtr6ZJ4fU50OSAwFLlrwVanQnfkTYDmSooyuAQ9gKm2vdSCUHDlbAnzUpOSbQ==",
++      "license": "Apache-2.0",
++      "peerDependencies": {
++        "react": ">=16.6.0",
++        "react-native": ">=0.60.0 <1.0.x"
++      }
++    },
++    "node_modules/@hmscore/react-native-hms-map": {
++      "version": "6.12.0-301",
++      "resolved": "https://registry.npmjs.org/@hmscore/react-native-hms-map/-/react-native-hms-map-6.12.0-301.tgz",
++      "integrity": "sha512-1i8ddd7Ewdpb21yRmfC2LtS9R1oyQTMb0HR3WXWduPzdtpCnP/LWgPY+kv/vjMFMcbiVeYs0FM14HEWqtgy3dw==",
++      "license": "Apache-2.0",
++      "peerDependencies": {
++        "prop-types": "^15.7.2",
++        "react": ">=16.6.0",
++        "react-native": ">=0.60.0 <1.0.x"
++      }
++    },
+     "node_modules/@ide/backoff": {
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/@ide/backoff/-/backoff-1.0.0.tgz",
+@@ -9272,6 +9307,25 @@
+         "node": ">= 6"
+       }
+     },
++    "node_modules/prop-types": {
++      "version": "15.8.1",
++      "resolved": "https://registry.npmjs.org/prop-types/-/prop-types-15.8.1.tgz",
++      "integrity": "sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==",
++      "license": "MIT",
++      "peer": true,
++      "dependencies": {
++        "loose-envify": "^1.4.0",
++        "object-assign": "^4.1.1",
++        "react-is": "^16.13.1"
++      }
++    },
++    "node_modules/prop-types/node_modules/react-is": {
++      "version": "16.13.1",
++      "resolved": "https://registry.npmjs.org/react-is/-/react-is-16.13.1.tgz",
++      "integrity": "sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==",
++      "license": "MIT",
++      "peer": true
++    },
+     "node_modules/punycode": {
+       "version": "2.3.1",
+       "resolved": "https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz",
 diff --git a/package.json b/package.json
 index 1bac02d..ba88510 100644
 --- a/package.json
@@ -1260,34 +1346,44 @@ index 1bac02d..ba88510 100644
      "@supabase/supabase-js": "^2.108.2",
 diff --git a/plugins/withHmsCore.js b/plugins/withHmsCore.js
 new file mode 100644
-index 0000000..4ccdab9
+index 0000000..826801a
 --- /dev/null
 +++ b/plugins/withHmsCore.js
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,124 @@
 +// Wires Huawei Mobile Services (HMS Core) into the native Android build:
 +// the Huawei Maven repo, the AGConnect Gradle plugin, and copying
 +// agconnect-services.json into android/app/ during `expo prebuild`.
 +//
-+// Deliberately a no-op if agconnect-services.json isn't present at the
-+// project root — that's the signal that HMS/AppGallery Connect setup
-+// (see the Huawei Developer Console steps) hasn't been done yet. This
-+// keeps `expo prebuild` working for anyone who hasn't done that setup,
-+// instead of failing the whole Android build over a missing Huawei
-+// config file.
++// IMPORTANT: the Huawei Maven repo (developer.huawei.com/repo) is added
++// UNCONDITIONALLY, regardless of whether agconnect-services.json exists.
++// This isn't optional — installing @hmscore/react-native-hms-map (etc.)
++// makes React Native's autolinking pull those modules' native Android
++// code into the build automatically, and that native code depends on
++// com.huawei.hms:* artifacts that only exist on Huawei's Maven repo. If
++// that repo isn't declared, Gradle fails to resolve those dependencies
++// even on a build that will never run on Huawei hardware — this repo is
++// public and needs no credentials, so there's no downside to always
++// including it.
++//
++// The AGConnect Gradle *plugin application* (`apply plugin:
++// "com.huawei.agconnect"`) is different — it actively parses
++// agconnect-services.json at build time and fails without it, so that
++// part (and copying the file into android/app/) stays gated on the file
++// being present.
 +//
 +// Usage — add to app.json's "plugins" array:
 +//   ["./plugins/withHmsCore", {}]
 +//
-+// Requires, once agconnect-services.json is in place:
-+//   npm install @hmscore/react-native-hms-map @hmscore/react-native-hms-location @hmscore/react-native-hms-availability
++// Requires: npm install @hmscore/react-native-hms-map @hmscore/react-native-hms-location @hmscore/react-native-hms-availability
 +//
 +// NOTE: this has not been run through an actual `expo prebuild` +
-+// Android build — there's no HMS-registered app / agconnect-services.json
-+// available in this environment to test against. Sanity-check the
-+// generated android/build.gradle and android/app/build.gradle after your
-+// first prebuild once you have real credentials, and compare against
-+// Huawei's "Integrating the AppGallery Connect Plugin" docs if the build
-+// fails.
++// Android build against real HMS credentials — the Maven-repo fix here
++// was verified against a real build failure, but the AGConnect
++// plugin-application path (once you have agconnect-services.json) still
++// hasn't been. Sanity-check android/build.gradle and
++// android/app/build.gradle after your first prebuild with real
++// credentials, and compare against Huawei's "Integrating the AppGallery
++// Connect Plugin" docs if it fails.
 +const fs = require("fs");
 +const path = require("path");
 +const {
@@ -1308,7 +1404,8 @@ index 0000000..4ccdab9
 +
 +function withHmsProjectGradle(config) {
 +  return withProjectBuildGradle(config, (config) => {
-+    if (!hasAgConnectConfig(config.modRequest.projectRoot)) return config;
++    // Always runs — see the note at the top of this file for why the
++    // repo/classpath additions aren't gated on agconnect-services.json.
 +    let contents = config.modResults.contents;
 +
 +    if (!contents.includes(HUAWEI_MAVEN_REPO)) {
@@ -1334,6 +1431,9 @@ index 0000000..4ccdab9
 +
 +function withHmsAppGradle(config) {
 +  return withAppBuildGradle(config, (config) => {
++    // Gated: applying this plugin without agconnect-services.json present
++    // makes the AGConnect Gradle plugin itself fail, since it parses that
++    // file at build time.
 +    if (!hasAgConnectConfig(config.modRequest.projectRoot)) return config;
 +    let contents = config.modResults.contents;
 +
@@ -1373,6 +1473,7 @@ index 0000000..4ccdab9
 +  config = withAgConnectServicesJson(config);
 +  return config;
 +};
++
 diff --git a/src/components/MapPicker.tsx b/src/components/MapPicker.tsx
 index 2028d5e..da365d4 100644
 --- a/src/components/MapPicker.tsx
