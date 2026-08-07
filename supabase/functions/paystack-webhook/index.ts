@@ -73,6 +73,9 @@ Deno.serve(async (req: Request) => {
       if (purpose === "ride_card_payment") {
         return await handleRideCardPaymentSuccess(adminClient, data);
       }
+      if (purpose === "card_verification") {
+        return await handleCardVerificationSuccess(adminClient, data);
+      }
 
       const reference = data.reference as string;
       const driverId = data.metadata?.driver_id as string | undefined;
@@ -144,28 +147,15 @@ Deno.serve(async (req: Request) => {
     }
 
     if (event.event === "preauthorization.reserve.success") {
-      const data = event.data;
-      const purpose = data.metadata?.purpose as string | undefined;
-      if (purpose === "card_verification") {
-        return await handleCardVerificationReserved(adminClient, data);
-      }
       // Ride fund reservations (purpose "ride_card_reservation") get
       // their synchronous response handled directly in
       // paystack-reserve-ride-card and don't need this webhook — ignore.
+      // (Card verification used to be handled here too, but now runs
+      // through a plain charge — see handleCardVerificationSuccess.)
       return new Response(JSON.stringify({ ok: true, ignored: "not a recognized preauthorization purpose" }), { status: 200 });
     }
 
     if (event.event === "preauthorization.reserve.failed") {
-      const data = event.data;
-      const purpose = data.metadata?.purpose as string | undefined;
-      if (purpose === "card_verification") {
-        const reason = data.gateway_response ?? data.message ?? "Card verification failed.";
-        await adminClient
-          .from("rider_card_verifications")
-          .update({ status: "failed", failure_reason: reason })
-          .eq("paystack_reference", data.reference)
-          .eq("status", "pending");
-      }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
 
@@ -198,6 +188,15 @@ Deno.serve(async (req: Request) => {
             .eq("id", rideId)
             .eq("payment_reference", reference);
         }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+
+      if (purpose === "card_verification") {
+        await adminClient
+          .from("rider_card_verifications")
+          .update({ status: "failed", failure_reason: reason })
+          .eq("paystack_reference", reference)
+          .eq("status", "pending");
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
 
@@ -307,11 +306,15 @@ async function handleWalletTopupSuccess(adminClient: any, data: any): Promise<Re
   return new Response(JSON.stringify({ ok: true }), { status: 200 });
 }
 
-// Confirms a card-verification hold (paystack-initialize-card-verification)
-// succeeded: saves the card, then immediately releases the hold so no
-// money is ever actually taken — this is the entire point of using a
-// preauthorization here instead of a real charge.
-async function handleCardVerificationReserved(adminClient: any, data: any): Promise<Response> {
+// Confirms a card-verification charge (paystack-initialize-card-verification)
+// succeeded: saves the card, then refunds the R10 so the rider isn't
+// actually out any money for just adding a card. Unlike the old
+// preauthorization hold-release, this is a genuine refund of a genuine
+// charge — Paystack can take up to 10 business days to actually return
+// the funds, even though the card itself is saved and usable right away
+// (see the comment in paystack-initialize-card-verification for why this
+// approach replaced the Preauthorization one).
+async function handleCardVerificationSuccess(adminClient: any, data: any): Promise<Response> {
   const reference = data.reference as string;
   const riderId = data.metadata?.rider_id as string | undefined;
   if (!riderId) {
@@ -328,7 +331,7 @@ async function handleCardVerificationReserved(adminClient: any, data: any): Prom
     return new Response(JSON.stringify({ error: fetchError.message }), { status: 500 });
   }
   // Idempotency: Paystack can and does retry webhook delivery.
-  if (verificationRow?.status === "success" || verificationRow?.status === "released") {
+  if (verificationRow?.status === "success" || verificationRow?.status === "refunded") {
     return new Response(JSON.stringify({ ok: true, already_processed: true }), { status: 200 });
   }
 
@@ -343,29 +346,30 @@ async function handleCardVerificationReserved(adminClient: any, data: any): Prom
 
   await saveRiderCardIfReusable(adminClient, riderId, data.authorization ?? {});
 
-  // Best-effort: even if this fails, the hold auto-releases on its own
-  // via expire_action/expire_after_days set when it was initialized — the
-  // card is already saved either way, which is what actually matters to
-  // the rider.
+  // Best-effort: the card is already saved either way, which is what
+  // actually matters for the rider to be able to use it — if the refund
+  // request itself fails here, it's still visible via Paystack's
+  // dashboard/List Refunds for manual follow-up, so this doesn't retry
+  // in a loop that could double-refund on a delayed webhook redelivery.
   try {
-    const res = await fetch("https://api.paystack.co/preauthorization/release", {
+    const res = await fetch("https://api.paystack.co/refund", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ reference }),
+      body: JSON.stringify({ transaction: reference }),
     });
     if (res.ok) {
       await adminClient
         .from("rider_card_verifications")
-        .update({ status: "released" })
+        .update({ status: "refunded" })
         .eq("paystack_reference", reference);
     } else {
-      console.error("paystack-webhook: card verification release did not confirm", await res.text());
+      console.error("paystack-webhook: card verification refund did not confirm", await res.text());
     }
-  } catch (releaseErr) {
-    console.error("paystack-webhook: card verification release fetch failed", String(releaseErr));
+  } catch (refundErr) {
+    console.error("paystack-webhook: card verification refund fetch failed", String(refundErr));
   }
 
   return new Response(JSON.stringify({ ok: true }), { status: 200 });

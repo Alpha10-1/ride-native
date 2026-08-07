@@ -17,7 +17,6 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import RowItem from "../../src/components/RowItem";
 import SOSFab from "../../src/components/SOSFab";
-import SupportChatFab from "../../src/components/SupportChatFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { regionFromCenterZoom } from "../../src/lib/mapCamera";
 import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
@@ -380,7 +379,6 @@ export default function DriverHome() {
         onMenu={() => setMenuOpen((v) => !v)}
       />
       <SOSFab role="driver" />
-      <SupportChatFab role="driver" />
 
       <View style={styles.mapWrap}>
         {coords && mobileServiceProvider === "hms" ? (

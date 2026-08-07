@@ -135,11 +135,14 @@ export default function PaymentMethodsScreen() {
     ]);
   };
 
-  // Places a real hold on a nominal amount via Paystack Preauthorization
-  // and releases it the moment it's confirmed (see
-  // paystack-initialize-card-verification + the webhook) — the card gets
-  // verified and saved for future ride payments, but nothing is ever
-  // actually charged.
+  // Runs a real R10 charge+refund via Paystack (see
+  // paystack-initialize-card-verification + the webhook for why this
+  // replaced the original Preauthorization hold-and-release: that API is
+  // gated behind a South-Africa merchant eligibility flag that isn't
+  // approved yet). The card gets verified and saved for future ride
+  // payments; the R10 itself is refunded automatically, though — unlike
+  // a released hold — that can take up to a few business days to
+  // actually clear on the rider's statement.
   const handleAddCard = async () => {
     setSaving(true);
     setError(null);

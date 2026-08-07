@@ -9,7 +9,7 @@ import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
-import SupportChatFab from "../../src/components/SupportChatFab";
+import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
 import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
@@ -49,6 +49,10 @@ export default function ActiveTripScreen() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [stops, setStops] = useState<RideStop[]>([]);
   const [markingStop, setMarkingStop] = useState<string | null>(null);
+  // This screen has no header/nav chrome of its own — it's just the map +
+  // bottom panel — so this is the only way to reach Support Chat (or
+  // anything else in the side menu) once a trip is underway.
+  const [menuOpen, setMenuOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [tripStartTime, setTripStartTime] = useState<Date | null>(null);
@@ -413,7 +417,9 @@ export default function ActiveTripScreen() {
         )}
 
         <SOSFab rideId={ride.id} role="driver" />
-        <SupportChatFab role="driver" bottom={280} />
+        <Pressable style={styles.menuFab} onPress={() => setMenuOpen(true)} hitSlop={8}>
+          <Ionicons name="menu" size={22} color="#000" />
+        </Pressable>
 
         <View style={styles.panel}>
           <GlassCard style={styles.statusCard}>
@@ -548,12 +554,30 @@ export default function ActiveTripScreen() {
           )}
         </View>
       </View>
+      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="driver" />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  menuFab: {
+    position: "absolute",
+    top: 60,
+    left: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+    zIndex: 50,
+  },
   centerFill: { flex: 1, alignItems: "center", justifyContent: "center" },
   panel: {
     position: "absolute",

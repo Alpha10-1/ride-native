@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Alert, TextInput } from "react-native";
+import { View, Text, StyleSheet, Pressable, Alert, TextInput, ScrollView } from "react-native";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +10,7 @@ import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import PulsingDot from "../../src/components/PulsingDot";
 import SOSFab from "../../src/components/SOSFab";
-import SupportChatFab from "../../src/components/SupportChatFab";
+import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { bearing } from "../../src/lib/geo";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
@@ -45,6 +45,10 @@ export default function RideTrackingScreen() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // This screen has no header/nav chrome of its own — it's just the map +
+  // bottom panel — so this is the only way to reach Support Chat (or
+  // anything else in the side menu) once a trip is underway.
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Fare negotiation — offers from all interested drivers on this
   // 'requested' ride, grouped into one thread per driver.
@@ -411,10 +415,27 @@ export default function RideTrackingScreen() {
         )}
 
         <SOSFab rideId={ride.id} role="rider" />
-        <SupportChatFab role="rider" bottom={280} />
+        <Pressable style={styles.menuFab} onPress={() => setMenuOpen(true)} hitSlop={8}>
+          <Ionicons name="menu" size={22} color="#000" />
+        </Pressable>
 
-        {/* Status panel */}
+        {/* Status panel — capped height + its own ScrollView so the fare
+            negotiation inputs (propose fare, counter offer) stay reachable.
+            This panel is a fixed bottom overlay over the map, not a normal
+            flex screen, so it doesn't get the usual "just scroll the
+            screen" keyboard behavior; without this it could grow taller
+            than the visible space (many driver offers stacking up) and an
+            input near the bottom would end up impossible to see or scroll
+            to once the keyboard opened. The outer Screen's
+            KeyboardAvoidingView still lifts this whole panel above the
+            keyboard; this ScrollView additionally lets the person scroll
+            within the panel itself to bring a specific input into view. */}
         <View style={styles.panel}>
+        <ScrollView
+          contentContainerStyle={styles.panelContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <GlassCard style={styles.statusCard}>
             <View style={styles.statusRow}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -603,8 +624,10 @@ export default function RideTrackingScreen() {
               danger
             />
           )}
+        </ScrollView>
         </View>
       </View>
+      <SideMenuDrawer open={menuOpen} onClose={() => setMenuOpen(false)} role="rider" />
     </Screen>
   );
 }
@@ -612,10 +635,30 @@ export default function RideTrackingScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   centerFill: { flex: 1, alignItems: "center", justifyContent: "center" },
+  menuFab: {
+    position: "absolute",
+    top: 60,
+    left: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+    zIndex: 50,
+  },
   panel: {
     position: "absolute", bottom: 0, left: 0, right: 0,
+    maxHeight: "70%",
     backgroundColor: "#070707",
     borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  panelContent: {
     padding: SPACE.md, paddingBottom: SPACE.xl, gap: SPACE.sm,
   },
   statusCard: { gap: SPACE.xs },

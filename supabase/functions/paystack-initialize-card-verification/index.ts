@@ -1,20 +1,28 @@
 // Supabase Edge Function: paystack-initialize-card-verification
 //
-// Starts the "Add card" flow from Payment Methods. Unlike the old
-// approach (piggybacking on a real R10 wallet top-up), this uses
-// Paystack's Preauthorization API to place a hold on a nominal amount
-// and release it immediately once confirmed — the rider's card gets
-// verified and saved, but nothing is ever actually captured, so no
-// money moves. (South Africa / ZAR only — same requirement as ride fund
-// reservations.)
+// Starts the "Add card" flow from Payment Methods.
+//
+// This used to call Paystack's Preauthorization API (a hold-then-release
+// with no money moving), but that API is gated behind a South-Africa-only
+// merchant eligibility flag that has to be manually enabled by Paystack
+// support — until that's approved, /preauthorization/initialize just
+// fails outright with "merchant is not eligible for authorization".
+//
+// Plain card charge+refund via /transaction/initialize has no such
+// gating and works in every market — this function now does a real R10
+// charge instead. The tradeoff: unlike a released hold, a processed
+// refund can take up to 10 business days to actually land back with the
+// rider, even though the card is saved and usable immediately. Worth
+// reflecting that in the "Add card" UI copy if it doesn't already.
 //
 // Flow:
-//   1. This function calls /preauthorization/initialize and returns a
+//   1. This function calls /transaction/initialize and returns a
 //      checkout URL, same shape as paystack-initialize-topup.
 //   2. The rider completes card entry in that checkout.
-//   3. Paystack sends a preauthorization.reserve.success webhook event
-//      (handled in paystack-webhook) — that's where the card actually
-//      gets saved to rider_cards, and where the hold gets released.
+//   3. Paystack sends a charge.success webhook event with
+//      metadata.purpose === "card_verification" (handled in
+//      paystack-webhook) — that's where the card actually gets saved to
+//      rider_cards, and where the refund gets kicked off.
 //
 // DEPLOY:
 //   supabase functions deploy paystack-initialize-card-verification
@@ -24,7 +32,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.109.0";
 
 const PAYSTACK_SECRET_KEY = (Deno.env.get("PAYSTACK_SECRET_KEY") ?? "").trim();
-const VERIFICATION_AMOUNT_CENTS = 1000; // R10 — Paystack's ZAR preauth minimum is 100c; this just needs to be a real-looking hold
+const VERIFICATION_AMOUNT_CENTS = 1000; // R10 — small enough to be a trivial refund, large enough to look like a real charge to the card issuer's fraud checks
 
 Deno.serve(async (req: Request) => {
   try {
@@ -75,7 +83,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-      const res = await fetch("https://api.paystack.co/preauthorization/initialize", {
+      const res = await fetch("https://api.paystack.co/transaction/initialize", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -86,14 +94,6 @@ Deno.serve(async (req: Request) => {
           amount: VERIFICATION_AMOUNT_CENTS,
           currency: "ZAR",
           reference,
-          // Defensive fallback only — the app always releases the hold
-          // itself the moment the webhook confirms it, well within
-          // minutes. If that ever doesn't happen (webhook misconfigured,
-          // function down), this makes sure Paystack releases the hold
-          // on its own after the shortest allowed window rather than
-          // capturing it.
-          expire_action: "release",
-          expire_after_days: 1,
           metadata: { rider_id: riderId, purpose: "card_verification" },
         }),
       });

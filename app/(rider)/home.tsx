@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Pressable, TextInput,
-  FlatList, ActivityIndicator, ScrollView, Alert, Linking,
+  FlatList, ActivityIndicator, ScrollView, Alert, Linking, BackHandler,
 } from "react-native";
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline, Region } from "react-native-maps";
 import * as Location from "expo-location";
@@ -17,7 +17,6 @@ import DraggableSheet from "../../src/components/DraggableSheet";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
 import SOSFab from "../../src/components/SOSFab";
-import SupportChatFab from "../../src/components/SupportChatFab";
 import { useSOSTrigger } from "../../src/hooks/useSOSTrigger";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
@@ -94,6 +93,10 @@ export default function RiderHome() {
   // Pin state (when user drags map)
   const [pinCoords, setPinCoords] = useState<[number, number] | null>(null);
   const [geocodingPin, setGeocodingPin] = useState(false);
+  // Live address preview shown while dragging — resolved for the current
+  // pinCoords by the debounced effect below. Kept separate from pinCoords
+  // itself so the label can distinguish "still resolving" from "resolved".
+  const [pinAddress, setPinAddress] = useState<string | null>(null);
 
   // Route + fare state
   const [routeGeoJSON, setRouteGeoJSON] = useState<any>(null);
@@ -411,11 +414,54 @@ export default function RiderHome() {
     setSearchResults([]);
     setPreviewPoint(null);
     setPinCoords(null);
+    setPinAddress(null);
     setShowFareNegotiation(false);
     setCustomFareInput("");
     setError(null);
     setStep("sheet");
   };
+
+  // Hardware back button (Android): step back through the booking flow
+  // instead of falling through to the default behavior, which is exiting
+  // the app entirely from whatever step the rider happens to be on. Each
+  // step's "back" mirrors the on-screen Cancel/Change-route action already
+  // available for that step, so behavior stays consistent whichever way the
+  // rider backs out. Only "sheet" (the resting/home state, nothing to
+  // cancel out of) lets the default back behavior through.
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        switch (step) {
+          case "pin":
+            resetBookingFlow();
+            return true;
+          case "input_pickup":
+          case "input_destination":
+            if (addingStop) {
+              setAddingStop(false);
+              setSearchQuery("");
+              setSearchResults([]);
+              setPreviewPoint(null);
+              setStep("tiers");
+            } else {
+              resetBookingFlow();
+            }
+            return true;
+          case "tiers":
+            setStep("input_destination");
+            return true;
+          case "requesting":
+            // A request is in flight — don't let back interrupt it.
+            return true;
+          case "sheet":
+          default:
+            return false;
+        }
+      };
+      const sub = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => sub.remove();
+    }, [step, addingStop])
+  );
 
   const confirmSearchResult = (result: SearchResult) => {
     const point: LocationPoint = {
@@ -522,6 +568,7 @@ export default function RiderHome() {
     // it looked placed, it just couldn't be confirmed. Read the map's
     // current center immediately instead of waiting for a drag.
     setPinCoords(null);
+    setPinAddress(null);
     mapRef.current?.getCamera()
       .then((camera) => {
         if (camera?.center) {
@@ -533,12 +580,37 @@ export default function RiderHome() {
       });
   };
 
+  // Live address preview while dragging the pin. Debounced so a fast drag
+  // doesn't fire a geocode request per frame — only once the map settles
+  // (matches onRegionChangeComplete's own "drag finished" cadence) plus a
+  // short buffer. `cancelled` guards against a slow, stale request from an
+  // earlier position landing after the user has already moved on.
+  useEffect(() => {
+    if (step !== "pin" || !pinCoords) return;
+    setPinAddress(null);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      reverseGeocode(pinCoords[1], pinCoords[0]).then((addr) => {
+        if (!cancelled) setPinAddress(addr);
+      });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [pinCoords, step]);
+
   const confirmPin = async () => {
     if (!pinCoords) return;
     setGeocodingPin(true);
     try {
+      // Reuse the address the live preview already resolved for this exact
+      // pinCoords, if it's ready — avoids a redundant geocode call for the
+      // common case where the user waited to see the address before
+      // confirming. Falls back to a fresh lookup if they tapped Confirm
+      // before the debounce settled.
       const [addr, w3w] = await Promise.all([
-        reverseGeocode(pinCoords[1], pinCoords[0]),
+        pinAddress ? Promise.resolve(pinAddress) : reverseGeocode(pinCoords[1], pinCoords[0]),
         // Best-effort — reverse-geocoding already has its own coordinate
         // fallback, so a failed w3w lookup here just means the point
         // ships without a what3words tag, not a broken flow. This is
@@ -700,7 +772,6 @@ export default function RiderHome() {
     <Screen>
       <RiderHeader subtitle="Where to?" menuOpen={menuOpen} onMenu={() => setMenuOpen((v) => !v)} />
       <SOSFab role="rider" />
-      <SupportChatFab role="rider" />
 
       <View style={styles.root}>
         {/* ── MAP ── */}
@@ -790,7 +861,13 @@ export default function RiderHome() {
         {/* ── PIN MODE CONFIRM ── */}
         {step === "pin" && (
           <View style={styles.pinConfirmWrap}>
-            <Text style={styles.pinInstruction}>Drag map to position pin</Text>
+            <Text style={styles.pinInstruction} numberOfLines={2}>
+              {pinAddress
+                ? pinAddress
+                : pinCoords
+                ? `${pinCoords[1].toFixed(5)}, ${pinCoords[0].toFixed(5)}`
+                : "Drag map to position pin"}
+            </Text>
             <PrimaryButton
               label={geocodingPin ? "Confirming..." : "Confirm Pin"}
               onPress={confirmPin}
@@ -858,7 +935,11 @@ export default function RiderHome() {
             below already handles its own scrolling. */}
         {(step === "input_pickup" || step === "input_destination") && (
           <DraggableSheet topGap={140} peekHeight={130} defaultExpanded scrollable={false}>
-            <View style={{ gap: SPACE.sm, flex: 1 }}>
+            {/* No flex:1 here — DraggableSheet now sizes itself to this
+                content's natural height (measured via onLayout) rather than
+                always filling the screen, so this must size to content too,
+                not stretch to fill whatever height the sheet happens to be. */}
+            <View style={{ gap: SPACE.sm }}>
             {step === "input_destination" ? (
               <Text style={styles.inputStepTitle}>{addingStop ? "Add a stop" : "Where to?"}</Text>
             ) : (
