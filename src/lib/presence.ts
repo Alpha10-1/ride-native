@@ -36,14 +36,19 @@ export async function setDriverOnlineStatus(
 }
 
 // Same as above, but for going online specifically: routes through
-// go_online_checked (see 20260730120000_driver_subscriptions.sql), which
-// verifies the driver's subscription is active/in-grace before calling
-// set_driver_online itself. Throws with a human-readable reason if the
-// subscription isn't in good standing — callers should surface that
-// message rather than swallow it, unlike the location-refresh calls
-// elsewhere in this file.
+// go_online_test_checked (see 20260804120000_driver_test_mode.sql),
+// which itself wraps go_online_checked (20260730120000_driver_subscriptions.sql)
+// — so this still verifies the subscription is active/in-grace, and
+// additionally verifies the driver isn't in test mode with "go online"
+// unchecked. For a driver not in test mode, the test-mode check is a
+// pure passthrough, so this is safe to call unconditionally.
+//
+// Bug fix: this used to call go_online_checked directly, which skipped
+// the test-mode check entirely — a driver an admin had locked out of
+// going online via the dashboard could still go fully online, making
+// Test Mode's main safeguard silently do nothing.
 export async function setDriverOnlineChecked(lat?: number, lng?: number): Promise<void> {
-  const { error } = await supabase.rpc("go_online_checked", {
+  const { error } = await supabase.rpc("go_online_test_checked", {
     lat_in: lat ?? null,
     lng_in: lng ?? null,
   });

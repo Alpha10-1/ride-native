@@ -36,6 +36,8 @@ import { getMySubscriptionGate, SubscriptionGate } from "../../src/lib/subscript
 import { haversineKm, formatDistance, progressiveRadiusKm } from "../../src/lib/geo";
 import { useDriverOnline, subscribeSubscriptionBlocked } from "../../src/lib/driverStatus";
 import { updateMyLocation } from "../../src/lib/presence";
+import { getMyTestModeStatus, TestModeStatus } from "../../src/lib/testMode";
+import TestModeBanner from "../../src/components/TestModeBanner";
 
 const MAX_SEARCH_RADIUS_KM = 1.6;
 const POLL_INTERVAL_MS = 4000;
@@ -58,6 +60,7 @@ export default function DriverHome() {
   const [vehicle, setVehicle] = useState<{ make: string; model: string; plate: string } | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>("unverified");
   const [subscriptionGate, setSubscriptionGate] = useState<SubscriptionGate | null>(null);
+  const [testModeStatus, setTestModeStatus] = useState<TestModeStatus | null>(null);
   const [lastTrip, setLastTrip] = useState<Ride | null>(null);
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
   const [coords, setCoords] = useState<[number, number] | null>(null); // [lng, lat]
@@ -88,7 +91,11 @@ export default function DriverHome() {
   // period expired, retry charge failed), explain why instead of just
   // silently flipping the toggle back to Offline.
   useEffect(() => {
-    return subscribeSubscriptionBlocked((reason) => {
+    return subscribeSubscriptionBlocked((reason, kind) => {
+      if (kind === "test_mode") {
+        Alert.alert("Test Mode", reason);
+        return;
+      }
       Alert.alert(
         "Taken offline",
         reason,
@@ -144,6 +151,9 @@ export default function DriverHome() {
       .catch(() => {});
     getMySubscriptionGate()
       .then((g) => { if (!cancelled) setSubscriptionGate(g); })
+      .catch(() => {});
+    getMyTestModeStatus()
+      .then((s) => { if (!cancelled) setTestModeStatus(s); })
       .catch(() => {});
     getEarningsSummary().then((s) => { if (!cancelled) setEarnings(s); }).catch(() => {});
     getRideHistory(1).then((h) => { if (!cancelled) setLastTrip(h[0] ?? null); }).catch(() => {});
@@ -378,6 +388,7 @@ export default function DriverHome() {
         menuOpen={menuOpen}
         onMenu={() => setMenuOpen((v) => !v)}
       />
+      {testModeStatus && <TestModeBanner status={testModeStatus} />}
       <SOSFab role="driver" />
 
       <View style={styles.mapWrap}>

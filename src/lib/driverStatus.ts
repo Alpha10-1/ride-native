@@ -3,6 +3,7 @@ import * as Location from "expo-location";
 
 import { setDriverOnlineStatus, setDriverOnlineChecked, updateMyLocation } from "./presence";
 import { getMySubscriptionGate } from "./subscription";
+import { isTestModeRestrictionError } from "./testMode";
 
 // Shared online/offline state across screens (Home, Requests, etc.), now
 // backed by the DB (see 0012_driver_presence_and_nearby_push.sql) so
@@ -18,10 +19,12 @@ import { getMySubscriptionGate } from "./subscription";
 // inactive/blocked), the flag is rolled back and subscribeSubscriptionBlocked
 // listeners are notified with the reason so the UI can explain why — this
 // covers both the normal "not paid up" case and a modified client trying
-// to skip the app's own pre-check.
+// to skip the app's own pre-check. Despite the listener's name (kept for
+// backwards compatibility), it also now fires for the test-mode
+// "go_online not enabled" rejection — see the `kind` field.
 
 type Listener = (online: boolean) => void;
-type BlockedListener = (reason: string) => void;
+type BlockedListener = (reason: string, kind: "subscription" | "test_mode") => void;
 
 let online = false;
 const listeners = new Set<Listener>();
@@ -41,10 +44,10 @@ async function getCurrentCoords(): Promise<{ lat: number; lng: number } | null> 
   }
 }
 
-function revertToOffline(reason: string) {
+function revertToOffline(reason: string, kind: "subscription" | "test_mode" = "subscription") {
   online = false;
   listeners.forEach((l) => l(false));
-  blockedListeners.forEach((l) => l(reason));
+  blockedListeners.forEach((l) => l(reason, kind));
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
@@ -80,11 +83,18 @@ async function syncOnlineStatus(value: boolean) {
       if (refreshTimer) clearInterval(refreshTimer);
       refreshTimer = setInterval(pushLocationRefresh, REFRESH_INTERVAL_MS);
     } catch (e: any) {
-      // Subscription gate rejected it (or the RPC call itself failed) —
-      // unlike the best-effort paths elsewhere in this file, this one
-      // needs to actually revert the optimistic UI flip so the driver
-      // isn't shown as "online" when the server never accepted it.
-      revertToOffline(e?.message ?? "Couldn't go online. Please try again.");
+      // Subscription gate rejected it, or (bug fix — see presence.ts)
+      // test mode rejected it because "go online" isn't enabled for this
+      // account yet — unlike the best-effort paths elsewhere in this
+      // file, this one needs to actually revert the optimistic UI flip
+      // so the driver isn't shown as "online" when the server never
+      // accepted it.
+      if (isTestModeRestrictionError(e)) {
+        const cleaned = (e?.message ?? "").replace(/^TEST_MODE_RESTRICTED:\s*/, "");
+        revertToOffline(cleaned || "Going online hasn't been enabled for your test account yet.", "test_mode");
+      } else {
+        revertToOffline(e?.message ?? "Couldn't go online. Please try again.", "subscription");
+      }
     }
   } else {
     if (refreshTimer) {
