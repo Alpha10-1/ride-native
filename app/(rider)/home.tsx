@@ -1294,11 +1294,20 @@ const styles = StyleSheet.create({
   },
 
   // Pin confirm
+  // elevation+zIndex are required on Android: MapView renders as a native
+  // SurfaceView, which can swallow touches meant for RN siblings on top of
+  // it unless those siblings are explicitly elevated above it. Every other
+  // control overlaid on a MapView in this app (ride-tracking.tsx,
+  // active-trip.tsx, driver home.tsx) already sets this — this was the one
+  // overlay missing it, which is why "Confirm Pin" rendered fine but never
+  // responded to taps on physical Android devices.
   pinConfirmWrap: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: "#070707",
     borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)",
     padding: SPACE.md, paddingBottom: SPACE.xl, gap: SPACE.sm,
+    elevation: 6,
+    zIndex: 50,
   },
   pinInstruction: {
     color: COLORS.textDim, fontSize: 13, textAlign: "center",
