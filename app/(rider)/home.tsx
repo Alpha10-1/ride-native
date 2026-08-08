@@ -620,8 +620,15 @@ export default function RiderHome() {
         // shareable.
         convertToWords(pinCoords[1], pinCoords[0]).catch(() => null),
       ]);
+      // w3w is best-effort (see convertToWords) and its shape isn't
+      // guaranteed — guard on w3w.words specifically, not just w3w, so a
+      // malformed/partial response can't throw here and get silently
+      // swallowed by the catch below (which used to abort the whole
+      // confirm with no visible error — this is what was actually causing
+      // "Confirming..." to bounce back to "Confirm Pin" with nothing
+      // happening beyond that).
       const point: LocationPoint = {
-        label: w3w ? formatWhat3Words(w3w.words) : "Pinned location",
+        label: w3w?.words ? formatWhat3Words(w3w.words) : "Pinned location",
         address: addr,
         lat: pinCoords[1],
         lng: pinCoords[0],
@@ -639,8 +646,9 @@ export default function RiderHome() {
         if (pickup) setStep("tiers");
         else { setStep("input_pickup"); setActiveField("pickup"); }
       }
-    } catch {
-      setGeocodingPin(false);
+    } catch (err: any) {
+      console.error("confirmPin failed:", err);
+      Alert.alert("Couldn't confirm location", err?.message ?? "Please try again.");
     } finally {
       setGeocodingPin(false);
     }

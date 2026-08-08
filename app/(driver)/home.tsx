@@ -352,7 +352,14 @@ export default function DriverHome() {
   };
 
   const handleToggleOnline = () => {
-    if (!online && subscriptionGate && !subscriptionGate.allowed) {
+    // In test mode, going online is gated by test-mode capabilities
+    // instead of a real subscription (see go_online_test_checked) — the
+    // server-side check in driverStatus.ts already handles that path and
+    // surfaces a "Test Mode" alert via subscribeSubscriptionBlocked, so
+    // skip the subscription pre-check here and let it fall through.
+    // Otherwise this modal fires (and blocks going online) for every
+    // test-mode driver even when go_online is enabled for them.
+    if (!online && !testModeStatus?.testMode && subscriptionGate && !subscriptionGate.allowed) {
       Alert.alert(
         subscriptionGate.status === "past_due" ? "Payment failed" : "Subscription required",
         subscriptionGate.reason ?? "Set up your driver subscription to go online.",
