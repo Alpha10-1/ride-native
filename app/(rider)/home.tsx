@@ -20,7 +20,7 @@ import SOSFab from "../../src/components/SOSFab";
 import { useSOSTrigger } from "../../src/hooks/useSOSTrigger";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { getSavedPlaces, SavedPlace } from "../../src/lib/savedPlaces";
-import { reverseGeocode } from "../../src/lib/geocoding";
+import { reverseGeocode, fetchWithTimeout } from "../../src/lib/geocoding";
 import { flyTo, fitToPoints, regionFromCenterZoom, toLatLngList } from "../../src/lib/mapCamera";
 import {
   getRoute, requestRide, requestScheduledRide, formatFare, demandLabel,
@@ -261,7 +261,7 @@ export default function RiderHome() {
 
     const searchViaGeocoding = async (query: string): Promise<SearchResult[]> => {
       const params = new URLSearchParams({ address: query, region: "za", key: GOOGLE_MAPS_API_KEY });
-      const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`);
+      const res = await fetchWithTimeout(`https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`);
       const json = await res.json();
       if (json.status && json.status !== "OK" && json.status !== "ZERO_RESULTS") {
         console.error(
@@ -333,7 +333,7 @@ export default function RiderHome() {
 
       try {
         const bias = pickup ?? currentLocation ?? { lat: DEFAULT_CENTER[1], lng: DEFAULT_CENTER[0] };
-        const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+        const res = await fetchWithTimeout("https://places.googleapis.com/v1/places:searchText", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

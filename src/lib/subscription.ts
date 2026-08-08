@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { invokeEdgeFunction } from "./functionsClient";
 
 export type SubscriptionStatus = "inactive" | "active" | "past_due" | "blocked" | "canceled";
 
@@ -78,7 +79,9 @@ export async function getMySubscriptionPayments(limit = 20): Promise<Subscriptio
 // happens server-side via the paystack-webhook function once Paystack
 // confirms the charge, not from anything the client reports back.
 export async function startSubscriptionCheckout(): Promise<{ authorizationUrl: string; reference: string; amountCents: number }> {
-  const { data, error } = await supabase.functions.invoke("paystack-initialize-subscription");
+  // invokeEdgeFunction so a stalled request times out instead of leaving
+  // the "Starting checkout..." button stuck forever.
+  const { data, error } = await invokeEdgeFunction("paystack-initialize-subscription");
   if (error) {
     // supabase-js's default error for a non-2xx response is just "Edge
     // Function returned a non-2xx status code" with no detail. The real

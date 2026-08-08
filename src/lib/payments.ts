@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { invokeEdgeFunction } from "./functionsClient";
 
 export type PaymentMethod = "wallet" | "card" | "cash";
 
@@ -109,7 +110,10 @@ function extractFunctionError(error: any): string {
 }
 
 async function invokeAndUnwrap(functionName: string, body?: Record<string, unknown>): Promise<any> {
-  const { data, error } = await supabase.functions.invoke(functionName, { body });
+  // invokeEdgeFunction (not supabase.functions.invoke directly) so a
+  // stalled request times out instead of leaving whatever payment button
+  // called this stuck on "Processing..." indefinitely.
+  const { data, error } = await invokeEdgeFunction(functionName, { body });
   if (error) {
     let detail = extractFunctionError(error);
     try {

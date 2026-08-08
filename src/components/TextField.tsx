@@ -10,6 +10,8 @@ export default function TextField({
   secureTextEntry,
   keyboardType,
   autoCapitalize,
+  multiline,
+  numberOfLines,
 }: {
   label?: string;
   placeholder: string;
@@ -18,6 +20,8 @@ export default function TextField({
   secureTextEntry?: boolean;
   keyboardType?: "default" | "phone-pad" | "email-address" | "numeric";
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  multiline?: boolean;
+  numberOfLines?: number;
 }) {
   return (
     <View style={{ gap: 6 }}>
@@ -31,7 +35,9 @@ export default function TextField({
           secureTextEntry={secureTextEntry}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize ?? "none"}
-          style={styles.input}
+          multiline={multiline}
+          numberOfLines={numberOfLines}
+          style={[styles.input, multiline && { minHeight: (numberOfLines ?? 3) * 20, textAlignVertical: "top" }]}
         />
       </View>
     </View>

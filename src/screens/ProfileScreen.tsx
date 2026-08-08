@@ -18,6 +18,8 @@ import {
 } from "../lib/auth";
 import { getProfileStats, formatFare, ProfileStats } from "../lib/rides";
 import { getMyVerificationStatus, VerificationStatus } from "../lib/verification";
+import { getMyDriverRatingSummary, DriverRatingSummary } from "../lib/ratings";
+import StarRating from "../components/StarRating";
 
 const VERIFICATION_META: Record<VerificationStatus, { label: string; color: string }> = {
   unverified: { label: "Not started", color: COLORS.textDim },
@@ -43,6 +45,7 @@ export default function ProfileScreen() {
 
   const [stats, setStats] = useState<ProfileStats>({ tripCount: 0, totalCents: 0 });
   const [verification, setVerification] = useState<VerificationStatus>("unverified");
+  const [ratingSummary, setRatingSummary] = useState<DriverRatingSummary | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [recoveryVerified, setRecoveryVerified] = useState<boolean | null>(null);
@@ -79,6 +82,7 @@ export default function ProfileScreen() {
         isRecoveryEmailVerified().then(setRecoveryVerified).catch(() => {});
         if (profile.role === "driver") {
           getMyVerificationStatus().then((v) => setVerification(v.status)).catch(() => {});
+          getMyDriverRatingSummary().then(setRatingSummary).catch(() => {});
         }
       } catch (e: any) {
         setError(e?.message ?? "Failed to load profile.");
@@ -210,6 +214,11 @@ export default function ProfileScreen() {
               </View>
               {memberSince && <Text style={styles.memberSince}>Member since {memberSince}</Text>}
             </View>
+            {role === "driver" && ratingSummary && ratingSummary.rating_count > 0 && (
+              <View style={{ marginTop: 6 }}>
+                <StarRating value={ratingSummary.avg_rating ?? 0} size={14} count={ratingSummary.rating_count} />
+              </View>
+            )}
           </View>
         </GlassCard>
 
@@ -237,6 +246,22 @@ export default function ProfileScreen() {
               </View>
               <Text style={styles.verificationLink} onPress={() => router.push("/(driver)/verification")}>
                 {verification === "verified" ? "View" : "Complete"}
+              </Text>
+            </View>
+          )}
+
+          {role === "driver" && (
+            <View style={styles.verificationRow}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="star-outline" size={13} color={COLORS.textFaint} />
+                <Text style={styles.verificationTxt2}>
+                  {ratingSummary && ratingSummary.rating_count > 0
+                    ? `${ratingSummary.avg_rating?.toFixed(1)} average (${ratingSummary.rating_count} rating${ratingSummary.rating_count === 1 ? "" : "s"})`
+                    : "No ratings yet"}
+                </Text>
+              </View>
+              <Text style={styles.verificationLink} onPress={() => router.push("/(driver)/ratings")}>
+                View
               </Text>
             </View>
           )}
@@ -339,6 +364,7 @@ const styles = StyleSheet.create({
   },
   verificationDot: { width: 7, height: 7, borderRadius: 4 },
   verificationTxt: { fontSize: 12, fontWeight: "800" },
+  verificationTxt2: { fontSize: 12, fontWeight: "700", color: COLORS.textDim },
   verificationLink: { color: COLORS.red, fontWeight: "900", fontSize: 12 },
 
   section: {

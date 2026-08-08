@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { decodePolyline } from "./polyline";
+import { fetchWithTimeout } from "./geocoding";
 
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY as string;
 
@@ -104,7 +105,15 @@ export async function getRoute(waypoints: [number, number][]): Promise<RouteResu
     params.set("waypoints", via.map(([lng, lat]) => `${lat},${lng}`).join("|"));
   }
 
-  const res = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
+  // fetchWithTimeout (not plain fetch) so a stalled request rejects
+  // instead of hanging — the caller (route refinement in the booking
+  // flow) already falls back to the straight-line estimate on any error,
+  // but only if this actually settles rather than hanging forever.
+  const res = await fetchWithTimeout(
+    `https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`,
+    undefined,
+    10_000
+  );
   if (!res.ok) throw new Error(`Directions API error (${res.status})`);
 
   const json = await res.json();
@@ -225,6 +234,30 @@ export async function getRideById(rideId: string): Promise<Ride | null> {
 
   if (error) throw error;
   return data;
+}
+
+export type DriverContactInfo = {
+  first_name: string;
+  last_name: string;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  license_plate: string | null;
+  avg_rating: number | null;
+  rating_count: number;
+};
+
+// Minimal driver info a rider needs once matched — enough to recognize
+// the car curbside and see who's driving, not the driver's full profile
+// (no email/cellphone/license number/banking details). Same direct-select
+// pattern as getProfileName() in negotiation.ts, just a wider field list.
+export async function getDriverContactInfo(driverId: string): Promise<DriverContactInfo | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("first_name, last_name, vehicle_make, vehicle_model, license_plate, avg_rating, rating_count")
+    .eq("id", driverId)
+    .single();
+  if (error || !data) return null;
+  return data as DriverContactInfo;
 }
 
 export async function getRideHistory(limit = 20): Promise<Ride[]> {

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { invokeEdgeFunction } from "./functionsClient";
 
 export type Wallet = {
   id: string;
@@ -55,7 +56,9 @@ export async function getWalletTransactions(limit = 20): Promise<WalletTransacti
 export async function startWalletTopUp(
   amountCents: number
 ): Promise<{ authorizationUrl: string; reference: string; amountCents: number }> {
-  const { data, error } = await supabase.functions.invoke("paystack-initialize-topup", {
+  // invokeEdgeFunction so a stalled request times out instead of leaving
+  // the top-up button stuck on "Processing..." forever.
+  const { data, error } = await invokeEdgeFunction("paystack-initialize-topup", {
     body: { amount_cents: amountCents },
   });
   if (error) {

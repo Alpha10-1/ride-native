@@ -21,7 +21,9 @@ import {
   formatFare, statusLabel, TIER_CONFIG,
   RideStop, getRideStops, subscribeToRideStops,
   minRiderOfferCents, proposeRiderFare,
+  DriverContactInfo, getDriverContactInfo,
 } from "../../src/lib/rides";
+import StarRating from "../../src/components/StarRating";
 import {
   RideOffer, OfferThread, getRideOffers, proposeOffer, respondToOffer,
   subscribeToRideOffers, groupOffersByDriver, getProfileName,
@@ -58,6 +60,7 @@ export default function RideTrackingScreen() {
   const [counterInput, setCounterInput] = useState("");
   const [offerBusy, setOfferBusy] = useState<string | null>(null);
   const [stops, setStops] = useState<RideStop[]>([]);
+  const [driverInfo, setDriverInfo] = useState<DriverContactInfo | null>(null);
 
   // Rider-initiated broadcast fare proposal — this is the only way a
   // negotiation on a ride can start; drivers can only respond to it.
@@ -192,6 +195,21 @@ export default function RideTrackingScreen() {
       unsub();
     };
   }, [rideId, ride?.status]);
+
+  // Fetch once a driver is actually matched — keyed on driver_id (not the
+  // whole ride object) so frequent driver_lat/driver_lng location pings
+  // via subscribeToRide don't trigger a refetch every few seconds.
+  useEffect(() => {
+    if (!ride?.driver_id) {
+      setDriverInfo(null);
+      return;
+    }
+    let cancelled = false;
+    getDriverContactInfo(ride.driver_id)
+      .then((info) => { if (!cancelled) setDriverInfo(info); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ride?.driver_id]);
 
   const handleAcceptOffer = async (offerId: string) => {
     setOfferBusy(offerId);
@@ -464,6 +482,36 @@ export default function RideTrackingScreen() {
             ) : null}
           </GlassCard>
 
+          {ride.driver_id && driverInfo && (
+            <GlassCard style={styles.driverCard}>
+              <View style={styles.driverAvatar}>
+                <Text style={styles.driverAvatarTxt}>
+                  {`${driverInfo.first_name?.[0] ?? ""}${driverInfo.last_name?.[0] ?? ""}`.toUpperCase() || "?"}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.driverName}>
+                  {driverInfo.first_name} {driverInfo.last_name}
+                </Text>
+                {driverInfo.rating_count > 0 ? (
+                  <StarRating value={driverInfo.avg_rating ?? 0} size={13} count={driverInfo.rating_count} />
+                ) : (
+                  <Text style={styles.driverMeta}>New driver</Text>
+                )}
+                {(driverInfo.vehicle_make || driverInfo.vehicle_model) && (
+                  <Text style={styles.driverMeta}>
+                    {[driverInfo.vehicle_make, driverInfo.vehicle_model].filter(Boolean).join(" ")}
+                  </Text>
+                )}
+              </View>
+              {driverInfo.license_plate && (
+                <View style={styles.plateBadge}>
+                  <Text style={styles.plateBadgeTxt}>{driverInfo.license_plate}</Text>
+                </View>
+              )}
+            </GlassCard>
+          )}
+
           {stops.length > 0 && (ride.status === "in_progress" || ride.status === "driver_arrived") && (
             <GlassCard style={{ gap: 10 }}>
               <Text style={styles.offersHeading}>Stops</Text>
@@ -673,6 +721,21 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255,46,46,0.25)",
   },
   tierBadgeTxt: { color: COLORS.red, fontWeight: "800", fontSize: 12 },
+  driverCard: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
+  driverAvatar: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: "rgba(255,46,46,0.14)",
+    borderWidth: 1.5, borderColor: "rgba(255,46,46,0.35)",
+    alignItems: "center", justifyContent: "center",
+  },
+  driverAvatarTxt: { color: COLORS.red, fontWeight: "900", fontSize: 16 },
+  driverName: { color: COLORS.text, fontWeight: "900", fontSize: 15 },
+  driverMeta: { color: COLORS.textFaint, fontSize: 12, marginTop: 2 },
+  plateBadge: {
+    backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: RADIUS.md, paddingHorizontal: 10, paddingVertical: 6,
+  },
+  plateBadgeTxt: { color: COLORS.text, fontWeight: "900", fontSize: 13, letterSpacing: 0.5 },
   tripDetails: { gap: 4 },
   detailRow: { flexDirection: "row", alignItems: "center", gap: SPACE.sm },
   detailText: { flex: 1, color: COLORS.textDim, fontSize: 13 },

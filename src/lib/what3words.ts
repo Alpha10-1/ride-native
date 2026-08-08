@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { invokeEdgeFunction } from "./functionsClient";
 
 // Loosely mirrors What3Words' own published regex for detecting a
 // 3-word address in free text: three words separated by full stops, each
@@ -26,7 +26,7 @@ export type What3WordsResult = {
 };
 
 async function invokeConvert(body: Record<string, unknown>): Promise<What3WordsResult> {
-  const { data, error } = await supabase.functions.invoke("what3words-convert", { body });
+  const { data, error } = await invokeEdgeFunction("what3words-convert", { body }, 12_000);
   if (error) {
     let detail = error.message;
     try {

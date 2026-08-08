@@ -7,12 +7,15 @@ import * as WebBrowser from "expo-web-browser";
 import Screen from "../../src/components/Screen";
 import GlassCard from "../../src/components/GlassCard";
 import PrimaryButton from "../../src/components/PrimaryButton";
+import StarRating from "../../src/components/StarRating";
+import TextField from "../../src/components/TextField";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { Ride, getRideById, formatFare, TIER_CONFIG } from "../../src/lib/rides";
 import { TripSlip, getTripSlip } from "../../src/lib/rides";
 import {
   RidePaymentStatus, settleRidePayment, chargeRideCard, startRideCardCheckout,
 } from "../../src/lib/payments";
+import { RideRating, getMyRatingForRide, submitRideRating } from "../../src/lib/ratings";
 
 export default function RideCompleteScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
@@ -21,6 +24,11 @@ export default function RideCompleteScreen() {
   const [error, setError] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<RidePaymentStatus | null>(null);
   const [payingNow, setPayingNow] = useState(false);
+  const [myRating, setMyRating] = useState<RideRating | null>(null);
+  const [ratingLoaded, setRatingLoaded] = useState(false);
+  const [selectedStars, setSelectedStars] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   useEffect(() => {
     if (!rideId) {
@@ -37,6 +45,22 @@ export default function RideCompleteScreen() {
         }
         setRide(r);
         setPaymentStatus(r.payment_status ?? null);
+
+        if (r.status === "completed" && r.driver_id) {
+          getMyRatingForRide(rideId)
+            .then((existing) => {
+              if (!cancelled) setMyRating(existing);
+            })
+            .catch(() => {
+              // non-critical — worst case the rider sees the rating form
+              // again and a resubmit attempt gets rejected server-side
+            })
+            .finally(() => {
+              if (!cancelled) setRatingLoaded(true);
+            });
+        } else {
+          setRatingLoaded(true);
+        }
 
         // Make sure settlement has actually run for this ride — the
         // driver's device normally triggers it right after completing
@@ -102,6 +126,19 @@ export default function RideCompleteScreen() {
       Alert.alert("Couldn't process payment", e?.message ?? "Please try again.");
     } finally {
       setPayingNow(false);
+    }
+  };
+
+  const handleSubmitRating = async () => {
+    if (!rideId || selectedStars < 1) return;
+    setSubmittingRating(true);
+    try {
+      const saved = await submitRideRating(rideId, selectedStars, ratingComment);
+      setMyRating(saved);
+    } catch (e: any) {
+      Alert.alert("Couldn't submit rating", e?.message ?? "Please try again.");
+    } finally {
+      setSubmittingRating(false);
     }
   };
 
@@ -301,6 +338,40 @@ export default function RideCompleteScreen() {
                   })}
                 </Text>
               </View>
+            )}
+          </GlassCard>
+        )}
+
+        {/* Driver rating */}
+        {!isCancelled && ride.status === "completed" && ride.driver_id && ratingLoaded && (
+          <GlassCard style={{ gap: SPACE.sm, alignItems: "center" }}>
+            {myRating ? (
+              <>
+                <Text style={styles.slipTitle}>YOUR RATING</Text>
+                <StarRating value={myRating.stars} size={26} />
+                <Text style={styles.paymentTxt}>Thanks for your feedback!</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.slipTitle}>RATE YOUR DRIVER</Text>
+                <StarRating value={selectedStars} onChange={setSelectedStars} size={34} />
+                {selectedStars > 0 && (
+                  <View style={{ width: "100%", gap: SPACE.sm, marginTop: SPACE.xs }}>
+                    <TextField
+                      placeholder="Add a comment (optional)"
+                      value={ratingComment}
+                      onChangeText={setRatingComment}
+                      multiline
+                      numberOfLines={3}
+                    />
+                    <PrimaryButton
+                      label={submittingRating ? "Submitting..." : "Submit Rating"}
+                      onPress={handleSubmitRating}
+                      disabled={submittingRating}
+                    />
+                  </View>
+                )}
+              </>
             )}
           </GlassCard>
         )}
