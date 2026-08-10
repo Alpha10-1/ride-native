@@ -84,7 +84,7 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get("Authorization");
   if (authHeader !== `Bearer ${CRON_SECRET}`) {
     console.error("paystack-charge-recurring: unauthorized (Authorization header didn't match CRON_SECRET)");
-    return new Response("Unauthorized", { status: 401 });
+    return new Response("Unauthorized", { status: 401, headers: { "Content-Type": "application/json" } });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

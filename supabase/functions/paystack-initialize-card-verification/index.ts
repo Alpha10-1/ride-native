@@ -2,27 +2,24 @@
 //
 // Starts the "Add card" flow from Payment Methods.
 //
-// This used to call Paystack's Preauthorization API (a hold-then-release
-// with no money moving), but that API is gated behind a South-Africa-only
-// merchant eligibility flag that has to be manually enabled by Paystack
-// support — until that's approved, /preauthorization/initialize just
-// fails outright with "merchant is not eligible for authorization".
-//
-// Plain card charge+refund via /transaction/initialize has no such
-// gating and works in every market — this function now does a real R10
-// charge instead. The tradeoff: unlike a released hold, a processed
-// refund can take up to 10 business days to actually land back with the
-// rider, even though the card is saved and usable immediately. Worth
-// reflecting that in the "Add card" UI copy if it doesn't already.
+// Uses Paystack's Preauthorization API — a hold placed on the card that
+// is released immediately once confirmed, so no money ever actually
+// moves. This requires a South-Africa-only merchant eligibility flag
+// that has to be manually enabled by Paystack support; it's approved on
+// this account now (previously it wasn't, so this briefly ran as a real
+// R10 charge+refund instead — see git history if that's ever relevant
+// again, and 20260807090000_card_verification_refunded_status.sql for
+// the status column's leftover 'refunded' value from that period).
 //
 // Flow:
-//   1. This function calls /transaction/initialize and returns a
-//      checkout URL, same shape as paystack-initialize-topup.
-//   2. The rider completes card entry in that checkout.
-//   3. Paystack sends a charge.success webhook event with
-//      metadata.purpose === "card_verification" (handled in
-//      paystack-webhook) — that's where the card actually gets saved to
-//      rider_cards, and where the refund gets kicked off.
+//   1. This function calls /preauthorization/initialize and returns a
+//      checkout URL.
+//   2. The rider completes card entry in that checkout. The funds are
+//      held, not charged.
+//   3. Paystack sends a preauthorization.reserve.success webhook event
+//      with metadata.purpose === "card_verification" (handled in
+//      paystack-webhook) — that's where the card gets saved to
+//      rider_cards, and where the hold gets released right away.
 //
 // DEPLOY:
 //   supabase functions deploy paystack-initialize-card-verification
@@ -32,13 +29,13 @@
 import { createClient } from "npm:@supabase/supabase-js@2.109.0";
 
 const PAYSTACK_SECRET_KEY = (Deno.env.get("PAYSTACK_SECRET_KEY") ?? "").trim();
-const VERIFICATION_AMOUNT_CENTS = 1000; // R10 — small enough to be a trivial refund, large enough to look like a real charge to the card issuer's fraud checks
+const VERIFICATION_AMOUNT_CENTS = 1000; // R10 hold — never captured, released as soon as the webhook confirms it
 
 Deno.serve(async (req: Request) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -50,13 +47,13 @@ Deno.serve(async (req: Request) => {
     });
     const { data: userData, error: userError } = await callerClient.auth.getUser();
     if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
     const riderId = userData.user.id;
 
     if (!PAYSTACK_SECRET_KEY) {
       console.error("paystack-initialize-card-verification: PAYSTACK_SECRET_KEY is empty/unset");
-      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500 });
+      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
@@ -79,11 +76,11 @@ Deno.serve(async (req: Request) => {
     });
     if (insertError) {
       console.error("paystack-initialize-card-verification: insert failed", insertError);
-      return new Response(JSON.stringify({ error: `Couldn't start verification: ${insertError.message}` }), { status: 500 });
+      return new Response(JSON.stringify({ error: `Couldn't start verification: ${insertError.message}` }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
 
     try {
-      const res = await fetch("https://api.paystack.co/transaction/initialize", {
+      const res = await fetch("https://api.paystack.co/preauthorization/initialize", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -91,9 +88,10 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           email,
-          amount: VERIFICATION_AMOUNT_CENTS,
+          amount: String(VERIFICATION_AMOUNT_CENTS),
           currency: "ZAR",
           reference,
+          expire_after_days: 1, // release the hold ASAP if our own release call below somehow never runs
           metadata: { rider_id: riderId, purpose: "card_verification" },
         }),
       });
@@ -105,7 +103,7 @@ Deno.serve(async (req: Request) => {
           .from("rider_card_verifications")
           .update({ status: "failed", failure_reason: reason })
           .eq("paystack_reference", reference);
-        return new Response(JSON.stringify({ error: reason }), { status: 502 });
+        return new Response(JSON.stringify({ error: reason }), { status: 502, headers: { "Content-Type": "application/json" } });
       }
 
       return new Response(
@@ -114,7 +112,7 @@ Deno.serve(async (req: Request) => {
           reference: resData.data.reference ?? reference,
           amount_cents: VERIFICATION_AMOUNT_CENTS,
         }),
-        { status: 200 }
+        { status: 200, headers: { "Content-Type": "application/json" } }
       );
     } catch (fetchErr) {
       console.error("paystack-initialize-card-verification: fetch to Paystack failed", String(fetchErr));
@@ -122,10 +120,10 @@ Deno.serve(async (req: Request) => {
         .from("rider_card_verifications")
         .update({ status: "failed", failure_reason: String(fetchErr) })
         .eq("paystack_reference", reference);
-      return new Response(JSON.stringify({ error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 502 });
+      return new Response(JSON.stringify({ error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 502, headers: { "Content-Type": "application/json" } });
     }
   } catch (err) {
     console.error("paystack-initialize-card-verification: unhandled exception", err);
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });

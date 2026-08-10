@@ -128,26 +128,14 @@ async function invokeAndUnwrap(functionName: string, body?: Record<string, unkno
   return data;
 }
 
-// Starts the "Add card" flow: a real R10 charge+refund via Paystack (see
-// paystack-initialize-card-verification for why this replaced the
-// original Preauthorization hold — that API needs South-Africa merchant
-// eligibility approval that's still pending). The card gets verified and
-// saved, and the R10 is refunded automatically, though the refund itself
-// can take a few business days to clear. Open the returned URL with
+// Starts the "Add card" flow: a Paystack Preauthorization hold that gets
+// released automatically the moment it's confirmed (see
+// paystack-initialize-card-verification / the webhook's
+// preauthorization.reserve.success handler) — the card gets verified and
+// saved, but nothing is ever actually charged. Open the returned URL with
 // expo-web-browser, same as any other Paystack checkout.
 export async function startCardVerification(): Promise<{ authorizationUrl: string; reference: string; amountCents: number }> {
   const data = await invokeAndUnwrap("paystack-initialize-card-verification", {});
-  // Belt-and-suspenders: invokeAndUnwrap already throws on an explicit
-  // `error`, but if the function response is ever malformed (e.g. a
-  // stale/un-redeployed version returning a different shape) and slips
-  // through without one, surface a clear message here instead of
-  // letting `undefined` reach WebBrowser.openAuthSessionAsync — that
-  // fails on Android with an opaque native error ("[openBrowserAsync]
-  // Cannot convert 'undefined' to a Kotlin type") that gives the user no
-  // idea what actually went wrong.
-  if (!data?.authorization_url) {
-    throw new Error("Couldn't start card verification. Please try again in a moment.");
-  }
   return {
     authorizationUrl: data.authorization_url,
     reference: data.reference,
@@ -255,4 +243,49 @@ export async function updateBankDetails(details: {
 export async function clearBankDetails(): Promise<void> {
   const { error } = await supabase.rpc("clear_bank_details");
   if (error) throw error;
+}
+
+// ============================================
+// DRIVER PAYOUTS
+// ============================================
+// Manual flow: request_payout() deducts the wallet balance immediately
+// and creates a 'pending' row; an admin reviews it in admin-dashboard and
+// pays externally, then marks it approved/paid, or rejects it (which
+// refunds the wallet). See 20260809120000_driver_payout_requests.sql.
+
+export type PayoutStatus = "pending" | "approved" | "paid" | "rejected";
+
+export type PayoutRequest = {
+  id: string;
+  driver_id: string;
+  amount_cents: number;
+  status: PayoutStatus;
+  bank_name: string;
+  bank_account_holder: string;
+  bank_account_number: string;
+  bank_branch_code: string | null;
+  admin_notes: string | null;
+  requested_at: string;
+  processed_at: string | null;
+};
+
+export async function requestPayout(amountCents: number): Promise<PayoutRequest> {
+  const { data, error } = await supabase.rpc("request_payout", { amount_cents_in: amountCents });
+  if (error) throw error;
+  return data as PayoutRequest;
+}
+
+export async function getMyPayoutRequests(limit = 20): Promise<PayoutRequest[]> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) throw new Error("Not signed in.");
+
+  const { data, error } = await supabase
+    .from("payout_requests")
+    .select("*")
+    .eq("driver_id", userId)
+    .order("requested_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
 }

@@ -23,19 +23,19 @@ Deno.serve(async (req: Request) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
 
     let body: any = {};
     try {
       body = await req.json();
     } catch {
-      return new Response(JSON.stringify({ error: "Invalid JSON body." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "Invalid JSON body." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
     const rideId = body?.ride_id as string | undefined;
     if (!rideId) {
-      return new Response(JSON.stringify({ error: "ride_id is required." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "ride_id is required." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -47,7 +47,7 @@ Deno.serve(async (req: Request) => {
     });
     const { data: userData, error: userError } = await callerClient.auth.getUser();
     if (userError || !userData.user) {
-      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
     const callerId = userData.user.id;
 
@@ -60,18 +60,18 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (rideError || !ride) {
-      return new Response(JSON.stringify({ error: `Ride not found: ${rideError?.message ?? "no row"}` }), { status: 404 });
+      return new Response(JSON.stringify({ error: `Ride not found: ${rideError?.message ?? "no row"}` }), { status: 404, headers: { "Content-Type": "application/json" } });
     }
     if (callerId !== ride.rider_id && callerId !== ride.driver_id) {
-      return new Response(JSON.stringify({ error: "Not authorized for this ride." }), { status: 403 });
+      return new Response(JSON.stringify({ error: "Not authorized for this ride." }), { status: 403, headers: { "Content-Type": "application/json" } });
     }
     if (ride.card_reservation_status !== "reserved" || !ride.card_reservation_reference) {
       // Nothing to release — fine, not an error.
-      return new Response(JSON.stringify({ ok: true, skipped: "no_active_reservation" }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, skipped: "no_active_reservation" }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (!PAYSTACK_SECRET_KEY) {
       console.error("paystack-release-ride-card: PAYSTACK_SECRET_KEY is empty/unset");
-      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500 });
+      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
 
     try {
@@ -95,17 +95,17 @@ Deno.serve(async (req: Request) => {
           .from("rides")
           .update({ card_reservation_status: "released", payment_status: "unpaid" })
           .eq("id", rideId);
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       console.error("paystack-release-ride-card: Paystack release did not confirm success", resData);
-      return new Response(JSON.stringify({ ok: false, error: resData?.message ?? "Release did not confirm." }), { status: 200 });
+      return new Response(JSON.stringify({ ok: false, error: resData?.message ?? "Release did not confirm." }), { status: 200, headers: { "Content-Type": "application/json" } });
     } catch (fetchErr) {
       console.error("paystack-release-ride-card: fetch to Paystack failed", String(fetchErr));
-      return new Response(JSON.stringify({ ok: false, error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 200 });
+      return new Response(JSON.stringify({ ok: false, error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
   } catch (err) {
     console.error("paystack-release-ride-card: unhandled exception", err);
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });

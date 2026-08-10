@@ -27,19 +27,19 @@ Deno.serve(async (req: Request) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       console.error("paystack-reserve-ride-card: missing Authorization header");
-      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
 
     let body: any = {};
     try {
       body = await req.json();
     } catch {
-      return new Response(JSON.stringify({ error: "Invalid JSON body." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "Invalid JSON body." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
     const rideId = body?.ride_id as string | undefined;
     if (!rideId) {
-      return new Response(JSON.stringify({ error: "ride_id is required." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "ride_id is required." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -53,7 +53,7 @@ Deno.serve(async (req: Request) => {
     const { data: userData, error: userError } = await callerClient.auth.getUser();
     if (userError || !userData.user) {
       console.error("paystack-reserve-ride-card: auth.getUser failed", userError);
-      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
     const callerId = userData.user.id;
 
@@ -71,29 +71,29 @@ Deno.serve(async (req: Request) => {
 
     if (rideError || !ride) {
       console.error("paystack-reserve-ride-card: ride fetch failed", rideError);
-      return new Response(JSON.stringify({ error: `Ride not found: ${rideError?.message ?? "no row"}` }), { status: 404 });
+      return new Response(JSON.stringify({ error: `Ride not found: ${rideError?.message ?? "no row"}` }), { status: 404, headers: { "Content-Type": "application/json" } });
     }
     // Either party can trigger this (accept happens on the driver's
     // device, but allow the rider to retry too if it ever needs it).
     if (callerId !== ride.rider_id && callerId !== ride.driver_id) {
-      return new Response(JSON.stringify({ error: "Not authorized for this ride." }), { status: 403 });
+      return new Response(JSON.stringify({ error: "Not authorized for this ride." }), { status: 403, headers: { "Content-Type": "application/json" } });
     }
     if (ride.status === "completed" || ride.status === "cancelled") {
-      return new Response(JSON.stringify({ error: "This ride has already ended." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "This ride has already ended." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
     if (ride.payment_method !== "card") {
       // Not an error — this function is only meaningful for card rides.
-      return new Response(JSON.stringify({ ok: true, skipped: "not_card" }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, skipped: "not_card" }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     // Idempotent: already reserved/captured, or a reservation attempt is
     // already in flight — don't double up.
     if (["reserved", "captured", "pending"].includes(ride.card_reservation_status)) {
-      return new Response(JSON.stringify({ ok: true, skipped: ride.card_reservation_status }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, skipped: ride.card_reservation_status }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
     const amountCents = ride.final_fare_cents ?? ride.rider_proposed_fare_cents ?? ride.estimated_fare_cents ?? 0;
     if (amountCents <= 0) {
-      return new Response(JSON.stringify({ ok: true, skipped: "no_fare_yet" }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, skipped: "no_fare_yet" }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
     const { data: card, error: cardError } = await adminClient
@@ -110,12 +110,12 @@ Deno.serve(async (req: Request) => {
     if (!card?.paystack_authorization_code) {
       // No saved card to place a hold on — not fatal, just nothing to do.
       // The ride still proceeds and pays normally at completion.
-      return new Response(JSON.stringify({ ok: true, skipped: "no_saved_card" }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, skipped: "no_saved_card" }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
     if (!PAYSTACK_SECRET_KEY) {
       console.error("paystack-reserve-ride-card: PAYSTACK_SECRET_KEY is empty/unset");
-      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500 });
+      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
 
     const { data: profile } = await adminClient
@@ -138,7 +138,7 @@ Deno.serve(async (req: Request) => {
     });
     if (paymentInsertError) {
       console.error("paystack-reserve-ride-card: ride_payments insert failed", paymentInsertError);
-      return new Response(JSON.stringify({ error: `Reservation insert failed: ${paymentInsertError.message}` }), { status: 500 });
+      return new Response(JSON.stringify({ error: `Reservation insert failed: ${paymentInsertError.message}` }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
 
     await adminClient
@@ -184,7 +184,7 @@ Deno.serve(async (req: Request) => {
           .update({ card_reservation_status: "reserved", payment_status: "reserved" })
           .eq("id", rideId);
 
-        return new Response(JSON.stringify({ ok: true, amount_cents: amountCents, reference }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true, amount_cents: amountCents, reference }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       const failureReason = resData?.data?.gateway_response ?? resData?.message ?? "Reservation failed.";
@@ -199,7 +199,7 @@ Deno.serve(async (req: Request) => {
 
       // Still ok:true — a failed hold doesn't stop the ride, it just
       // means completion falls back to a normal charge attempt.
-      return new Response(JSON.stringify({ ok: false, error: failureReason }), { status: 200 });
+      return new Response(JSON.stringify({ ok: false, error: failureReason }), { status: 200, headers: { "Content-Type": "application/json" } });
     } catch (fetchErr) {
       console.error("paystack-reserve-ride-card: fetch to Paystack failed", String(fetchErr));
       await adminClient
@@ -210,10 +210,10 @@ Deno.serve(async (req: Request) => {
         .from("rides")
         .update({ card_reservation_status: "failed" })
         .eq("id", rideId);
-      return new Response(JSON.stringify({ ok: false, error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 200 });
+      return new Response(JSON.stringify({ ok: false, error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
   } catch (err) {
     console.error("paystack-reserve-ride-card: unhandled exception", err);
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });

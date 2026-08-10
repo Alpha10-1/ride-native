@@ -29,19 +29,19 @@ Deno.serve(async (req: Request) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       console.error("paystack-charge-ride-card: missing Authorization header");
-      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Missing Authorization header." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
 
     let body: any = {};
     try {
       body = await req.json();
     } catch {
-      return new Response(JSON.stringify({ error: "Invalid JSON body." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "Invalid JSON body." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
     const rideId = body?.ride_id as string | undefined;
     if (!rideId) {
-      return new Response(JSON.stringify({ error: "ride_id is required." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "ride_id is required." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -55,7 +55,7 @@ Deno.serve(async (req: Request) => {
     const { data: userData, error: userError } = await callerClient.auth.getUser();
     if (userError || !userData.user) {
       console.error("paystack-charge-ride-card: auth.getUser failed", userError);
-      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401 });
+      return new Response(JSON.stringify({ error: "Not signed in." }), { status: 401, headers: { "Content-Type": "application/json" } });
     }
     const callerId = userData.user.id;
 
@@ -72,27 +72,27 @@ Deno.serve(async (req: Request) => {
 
     if (rideError || !ride) {
       console.error("paystack-charge-ride-card: ride fetch failed", rideError);
-      return new Response(JSON.stringify({ error: `Ride not found: ${rideError?.message ?? "no row"}` }), { status: 404 });
+      return new Response(JSON.stringify({ error: `Ride not found: ${rideError?.message ?? "no row"}` }), { status: 404, headers: { "Content-Type": "application/json" } });
     }
     // Either party on the ride can trigger settlement — the driver
     // completing the trip, or the rider viewing their receipt.
     if (callerId !== ride.rider_id && callerId !== ride.driver_id) {
-      return new Response(JSON.stringify({ error: "Not authorized for this ride." }), { status: 403 });
+      return new Response(JSON.stringify({ error: "Not authorized for this ride." }), { status: 403, headers: { "Content-Type": "application/json" } });
     }
     if (ride.status !== "completed") {
-      return new Response(JSON.stringify({ error: "This ride hasn't been completed yet." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "This ride hasn't been completed yet." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
     if (ride.payment_method !== "card") {
-      return new Response(JSON.stringify({ error: "This ride isn't set to pay by card." }), { status: 400 });
+      return new Response(JSON.stringify({ error: "This ride isn't set to pay by card." }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
     if (ride.payment_status === "paid") {
-      return new Response(JSON.stringify({ ok: true, already_paid: true }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, already_paid: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
     const amountCents = ride.final_fare_cents ?? 0;
     if (amountCents <= 0) {
       await adminClient.from("rides").update({ payment_status: "paid" }).eq("id", rideId);
-      return new Response(JSON.stringify({ ok: true, amount_cents: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, amount_cents: 0 }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
     // If accept-time reserved a hold on the rider's card, capture that
@@ -104,7 +104,7 @@ Deno.serve(async (req: Request) => {
     if (ride.card_reservation_status === "reserved" && ride.card_reservation_reference) {
       if (!PAYSTACK_SECRET_KEY) {
         console.error("paystack-charge-ride-card: PAYSTACK_SECRET_KEY is empty/unset");
-        return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500 });
+        return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500, headers: { "Content-Type": "application/json" } });
       }
 
       const heldAmount = ride.card_reservation_amount_cents ?? amountCents;
@@ -206,7 +206,7 @@ Deno.serve(async (req: Request) => {
           }
 
           await adminClient.from("rides").update({ payment_status: "paid" }).eq("id", rideId);
-          return new Response(JSON.stringify({ ok: true, amount_cents: amountCents, captured_via: "reservation" }), { status: 200 });
+          return new Response(JSON.stringify({ ok: true, amount_cents: amountCents, captured_via: "reservation" }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
 
         const captureFailure = captureData?.data?.gateway_response ?? captureData?.message ?? "Capture failed.";
@@ -237,7 +237,7 @@ Deno.serve(async (req: Request) => {
     if (!card?.paystack_authorization_code) {
       // No saved card — the app should fall back to
       // paystack-initialize-ride-checkout for a fresh checkout instead.
-      return new Response(JSON.stringify({ needs_checkout: true }), { status: 200 });
+      return new Response(JSON.stringify({ needs_checkout: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
     const { data: profile } = await adminClient
@@ -259,7 +259,7 @@ Deno.serve(async (req: Request) => {
     });
     if (paymentInsertError) {
       console.error("paystack-charge-ride-card: ride_payments insert failed", paymentInsertError);
-      return new Response(JSON.stringify({ error: `Payment insert failed: ${paymentInsertError.message}` }), { status: 500 });
+      return new Response(JSON.stringify({ error: `Payment insert failed: ${paymentInsertError.message}` }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
 
     await adminClient
@@ -269,7 +269,7 @@ Deno.serve(async (req: Request) => {
 
     if (!PAYSTACK_SECRET_KEY) {
       console.error("paystack-charge-ride-card: PAYSTACK_SECRET_KEY is empty/unset");
-      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500 });
+      return new Response(JSON.stringify({ error: "Server misconfigured: PAYSTACK_SECRET_KEY is not set." }), { status: 500, headers: { "Content-Type": "application/json" } });
     }
 
     let chargeData: any;
@@ -310,7 +310,7 @@ Deno.serve(async (req: Request) => {
 
         await adminClient.from("rides").update({ payment_status: "paid" }).eq("id", rideId);
 
-        return new Response(JSON.stringify({ ok: true, amount_cents: amountCents }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true, amount_cents: amountCents }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
 
       const failureReason = chargeData?.data?.gateway_response ?? chargeData?.message ?? "Charge failed.";
@@ -320,7 +320,7 @@ Deno.serve(async (req: Request) => {
         .eq("paystack_reference", reference);
       await adminClient.from("rides").update({ payment_status: "failed" }).eq("id", rideId);
 
-      return new Response(JSON.stringify({ ok: false, error: failureReason }), { status: 200 });
+      return new Response(JSON.stringify({ ok: false, error: failureReason }), { status: 200, headers: { "Content-Type": "application/json" } });
     } catch (fetchErr) {
       console.error("paystack-charge-ride-card: fetch to Paystack failed", String(fetchErr));
       await adminClient
@@ -328,10 +328,10 @@ Deno.serve(async (req: Request) => {
         .update({ status: "failed", failure_reason: String(fetchErr) })
         .eq("paystack_reference", reference);
       await adminClient.from("rides").update({ payment_status: "failed" }).eq("id", rideId);
-      return new Response(JSON.stringify({ error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 502 });
+      return new Response(JSON.stringify({ error: `Couldn't reach Paystack: ${String(fetchErr)}` }), { status: 502, headers: { "Content-Type": "application/json" } });
     }
   } catch (err) {
     console.error("paystack-charge-ride-card: unhandled exception", err);
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });
