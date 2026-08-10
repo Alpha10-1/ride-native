@@ -207,7 +207,7 @@ export default function RideTrackingScreen() {
     let cancelled = false;
     getDriverContactInfo(ride.driver_id)
       .then((info) => { if (!cancelled) setDriverInfo(info); })
-      .catch(() => {});
+      .catch((e) => { if (!cancelled) console.error("Driver contact fetch failed:", e); });
     return () => { cancelled = true; };
   }, [ride?.driver_id]);
 

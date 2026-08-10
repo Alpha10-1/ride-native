@@ -256,7 +256,11 @@ export async function getDriverContactInfo(driverId: string): Promise<DriverCont
     .select("first_name, last_name, vehicle_make, vehicle_model, license_plate, avg_rating, rating_count")
     .eq("id", driverId)
     .single();
-  if (error || !data) return null;
+  if (error) {
+    console.error("getDriverContactInfo failed:", error.message, error.details);
+    return null;
+  }
+  if (!data) return null;
   return data as DriverContactInfo;
 }
 
