@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { Alert } from "../../src/lib/themedAlert";
 import { Ionicons } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
 import { useFocusEffect } from "expo-router";

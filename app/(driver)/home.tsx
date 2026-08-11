@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  View, Text, StyleSheet, ScrollView, Pressable,
-  ActivityIndicator, Vibration, Animated, Alert, TextInput,
-} from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Vibration, Animated, TextInput } from "react-native";
+import { Alert } from "../../src/lib/themedAlert";
 import { Ionicons } from "@expo/vector-icons";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";

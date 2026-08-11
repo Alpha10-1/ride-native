@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { Alert } from "../lib/themedAlert";
 import { router, useLocalSearchParams } from "expo-router";
 import { resetTo } from "../lib/navigation";
 

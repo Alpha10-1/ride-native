@@ -1,0 +1,508 @@
+diff --git a/app/(driver)/active-trip.tsx b/app/(driver)/active-trip.tsx
+index c18066f..e9c9eeb 100644
+--- a/app/(driver)/active-trip.tsx
++++ b/app/(driver)/active-trip.tsx
+@@ -1,5 +1,6 @@
+ import React, { useEffect, useRef, useState } from "react";
+-import { View, Text, StyleSheet, Alert, Linking, Pressable } from "react-native";
++import { View, Text, StyleSheet, Linking, Pressable } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
+ import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
+ import { Ionicons } from "@expo/vector-icons";
+diff --git a/app/(driver)/home.tsx b/app/(driver)/home.tsx
+index 9d88f12..03a07a3 100644
+--- a/app/(driver)/home.tsx
++++ b/app/(driver)/home.tsx
+@@ -1,8 +1,6 @@
+ import React, { useCallback, useEffect, useRef, useState } from "react";
+-import {
+-  View, Text, StyleSheet, ScrollView, Pressable,
+-  ActivityIndicator, Vibration, Animated, Alert, TextInput,
+-} from "react-native";
++import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Vibration, Animated, TextInput } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
+ import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
+diff --git a/app/(driver)/payout-method.tsx b/app/(driver)/payout-method.tsx
+index 845a704..ccfa69c 100644
+--- a/app/(driver)/payout-method.tsx
++++ b/app/(driver)/payout-method.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import { useFocusEffect } from "expo-router";
+ 
+diff --git a/app/(driver)/requests.tsx b/app/(driver)/requests.tsx
+index 76af4ea..6d2d0b9 100644
+--- a/app/(driver)/requests.tsx
++++ b/app/(driver)/requests.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useEffect, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TextInput, Pressable, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TextInput, Pressable } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import { router, useFocusEffect } from "expo-router";
+ 
+diff --git a/app/(driver)/statements.tsx b/app/(driver)/statements.tsx
+index e65ae72..828fdd8 100644
+--- a/app/(driver)/statements.tsx
++++ b/app/(driver)/statements.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useEffect, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import { useFocusEffect } from "expo-router";
+ 
+diff --git a/app/(driver)/subscription.tsx b/app/(driver)/subscription.tsx
+index b9400bf..10e5aca 100644
+--- a/app/(driver)/subscription.tsx
++++ b/app/(driver)/subscription.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import * as WebBrowser from "expo-web-browser";
+ import { useFocusEffect } from "expo-router";
+diff --git a/app/(driver)/verification.tsx b/app/(driver)/verification.tsx
+index 5801a73..ef0dc27 100644
+--- a/app/(driver)/verification.tsx
++++ b/app/(driver)/verification.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, Pressable } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import * as ImagePicker from "expo-image-picker";
+ import { useFocusEffect } from "expo-router";
+diff --git a/app/(rider)/home.tsx b/app/(rider)/home.tsx
+index abbfc59..b95be07 100644
+--- a/app/(rider)/home.tsx
++++ b/app/(rider)/home.tsx
+@@ -1,8 +1,6 @@
+ import React, { useCallback, useEffect, useRef, useState } from "react";
+-import {
+-  View, Text, StyleSheet, Pressable, TextInput,
+-  FlatList, ActivityIndicator, ScrollView, Alert, Linking, BackHandler,
+-} from "react-native";
++import { View, Text, StyleSheet, Pressable, TextInput, FlatList, ActivityIndicator, ScrollView, Linking, BackHandler } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import MapView, { PROVIDER_GOOGLE, Marker, Polyline, Region } from "react-native-maps";
+ import * as Location from "expo-location";
+ import { Ionicons } from "@expo/vector-icons";
+diff --git a/app/(rider)/ride-complete.tsx b/app/(rider)/ride-complete.tsx
+index 2ff1614..3b6801a 100644
+--- a/app/(rider)/ride-complete.tsx
++++ b/app/(rider)/ride-complete.tsx
+@@ -1,5 +1,6 @@
+ import React, { useEffect, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import { router, useLocalSearchParams } from "expo-router";
+ import * as WebBrowser from "expo-web-browser";
+diff --git a/app/(rider)/ride-tracking.tsx b/app/(rider)/ride-tracking.tsx
+index 31f1348..0ec3a3f 100644
+--- a/app/(rider)/ride-tracking.tsx
++++ b/app/(rider)/ride-tracking.tsx
+@@ -1,5 +1,6 @@
+ import React, { useEffect, useRef, useState } from "react";
+-import { View, Text, StyleSheet, Pressable, Alert, TextInput, ScrollView } from "react-native";
++import { View, Text, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
+ import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
+ import { Ionicons } from "@expo/vector-icons";
+diff --git a/app/(rider)/saved-places.tsx b/app/(rider)/saved-places.tsx
+index b42b0a0..3cd1c60 100644
+--- a/app/(rider)/saved-places.tsx
++++ b/app/(rider)/saved-places.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { router, useFocusEffect } from "expo-router";
+ 
+ import Screen from "../../src/components/Screen";
+diff --git a/app/(rider)/scheduled-rides.tsx b/app/(rider)/scheduled-rides.tsx
+index 39c5be8..982ab4f 100644
+--- a/app/(rider)/scheduled-rides.tsx
++++ b/app/(rider)/scheduled-rides.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, Pressable } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
++import { Alert } from "../../src/lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import { router, useFocusEffect } from "expo-router";
+ 
+diff --git a/app/_layout.tsx b/app/_layout.tsx
+index 4d65766..7871693 100644
+--- a/app/_layout.tsx
++++ b/app/_layout.tsx
+@@ -1,11 +1,11 @@
+ import { useEffect } from "react";
+ import { Stack, router } from "expo-router";
+-import { Alert } from "react-native";
+ import { SafeAreaProvider } from "react-native-safe-area-context";
+ 
+ import { supabase } from "../src/lib/supabase";
+ import { registerAndSavePushToken, addNotificationTapListener } from "../src/lib/pushNotifications";
+ import { resetTo } from "../src/lib/navigation";
++import { Alert, AlertProvider } from "../src/lib/themedAlert";
+ 
+ export default function RootLayout() {
+   useEffect(() => {
+@@ -100,12 +100,14 @@ export default function RootLayout() {
+ 
+   return (
+     <SafeAreaProvider>
+-      <Stack
+-        screenOptions={{
+-          headerShown: false,
+-          animation: "fade",
+-        }}
+-      />
++      <AlertProvider>
++        <Stack
++          screenOptions={{
++            headerShown: false,
++            animation: "fade",
++          }}
++        />
++      </AlertProvider>
+     </SafeAreaProvider>
+   );
+ }
+\ No newline at end of file
+diff --git a/src/components/SideMenuDrawer.tsx b/src/components/SideMenuDrawer.tsx
+index 94c0552..177ed93 100644
+--- a/src/components/SideMenuDrawer.tsx
++++ b/src/components/SideMenuDrawer.tsx
+@@ -1,14 +1,6 @@
+ import React, { useEffect, useRef, useState } from "react";
+-import {
+-  Alert,
+-  Animated,
+-  Dimensions,
+-  Pressable,
+-  ScrollView,
+-  StyleSheet,
+-  Text,
+-  View,
+-} from "react-native";
++import { Animated, Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { BlurView } from "expo-blur";
+ import { Ionicons } from "@expo/vector-icons";
+ 
+diff --git a/src/hooks/useSOSTrigger.ts b/src/hooks/useSOSTrigger.ts
+index 8d3af2b..0c66332 100644
+--- a/src/hooks/useSOSTrigger.ts
++++ b/src/hooks/useSOSTrigger.ts
+@@ -1,5 +1,5 @@
+ import { useState } from "react";
+-import { Alert } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { router } from "expo-router";
+ import * as Location from "expo-location";
+ 
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index b6cbcaf..1784bc0 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -1,6 +1,6 @@
+ import { supabase } from "./supabase";
+ import { resetTo } from "./navigation";
+-import { Alert } from "react-native";
++import { Alert } from "./themedAlert";
+ import { registerAndSavePushToken } from "./pushNotifications";
+ 
+ // Supabase Auth requires an email. Since this app authenticates by username,
+diff --git a/src/lib/themedAlert.tsx b/src/lib/themedAlert.tsx
+new file mode 100644
+index 0000000..27bceb6
+--- /dev/null
++++ b/src/lib/themedAlert.tsx
+@@ -0,0 +1,197 @@
++import React, { useCallback, useState } from "react";
++import { Modal, View, Text, Pressable, StyleSheet } from "react-native";
++import { Ionicons } from "@expo/vector-icons";
++import { COLORS, RADIUS, SPACE } from "../theme/tokens";
++
++export type ThemedAlertButton = {
++  text?: string;
++  onPress?: () => void;
++  style?: "default" | "cancel" | "destructive";
++};
++
++type AlertState = {
++  visible: boolean;
++  title?: string;
++  message?: string;
++  buttons: ThemedAlertButton[];
++};
++
++const INITIAL_STATE: AlertState = { visible: false, buttons: [] };
++
++// Module-level bridge so `Alert.alert(...)` can be called imperatively from
++// anywhere — screens, hooks, lib/*.ts — exactly like the real RN Alert,
++// without every caller needing access to React context.
++let dispatch: ((title?: string, message?: string, buttons?: ThemedAlertButton[]) => void) | null = null;
++
++/**
++ * Drop-in replacement for React Native's `Alert`. Same call signature
++ * (`Alert.alert(title, message, buttons)`), but renders as a themed modal
++ * matching the app's dark/red styling instead of the OS system dialog.
++ * Requires <AlertProvider> to be mounted (see app/_layout.tsx).
++ */
++export const Alert = {
++  alert(title?: string, message?: string, buttons?: ThemedAlertButton[]) {
++    if (dispatch) {
++      dispatch(title, message, buttons);
++    } else if (__DEV__) {
++      console.warn("[themedAlert] AlertProvider not mounted yet:", title, message);
++    }
++  },
++};
++
++export function AlertProvider({ children }: { children: React.ReactNode }) {
++  const [state, setState] = useState<AlertState>(INITIAL_STATE);
++
++  const hide = useCallback(() => setState((s) => ({ ...s, visible: false })), []);
++
++  dispatch = (title, message, buttons) => {
++    setState({
++      visible: true,
++      title,
++      message,
++      buttons: buttons && buttons.length ? buttons : [{ text: "OK", style: "default" }],
++    });
++  };
++
++  const handlePress = (btn: ThemedAlertButton) => {
++    hide();
++    // Let the modal's close animation start before firing onPress, so any
++    // navigation it triggers doesn't visually collide with the dismiss.
++    setTimeout(() => btn.onPress?.(), 80);
++  };
++
++  const stacked = state.buttons.length > 2;
++  const isWarning =
++    /couldn'?t|error|failed|fail|denied|suspended|required|unavailable/i.test(state.title ?? "");
++
++  return (
++    <>
++      {children}
++      <Modal visible={state.visible} transparent animationType="fade" onRequestClose={hide}>
++        <View style={styles.overlay}>
++          <View style={styles.card}>
++            {isWarning && (
++              <View style={styles.iconWrap}>
++                <Ionicons name="alert-circle" size={28} color={COLORS.red} />
++              </View>
++            )}
++            {!!state.title && <Text style={styles.title}>{state.title}</Text>}
++            {!!state.message && <Text style={styles.message}>{state.message}</Text>}
++
++            <View style={[styles.buttons, stacked && styles.buttonsStacked]}>
++              {state.buttons.map((btn, i) => (
++                <Pressable
++                  key={i}
++                  onPress={() => handlePress(btn)}
++                  style={({ pressed }) => [
++                    styles.button,
++                    stacked && styles.buttonFull,
++                    btn.style === "cancel" && styles.buttonCancel,
++                    btn.style === "destructive" && styles.buttonDestructive,
++                    pressed && styles.buttonPressed,
++                  ]}
++                >
++                  <Text
++                    style={[
++                      styles.buttonText,
++                      btn.style === "cancel" && styles.buttonTextCancel,
++                      btn.style === "destructive" && styles.buttonTextDestructive,
++                    ]}
++                  >
++                    {btn.text ?? "OK"}
++                  </Text>
++                </Pressable>
++              ))}
++            </View>
++          </View>
++        </View>
++      </Modal>
++    </>
++  );
++}
++
++const styles = StyleSheet.create({
++  overlay: {
++    flex: 1,
++    backgroundColor: "rgba(0,0,0,0.7)",
++    alignItems: "center",
++    justifyContent: "center",
++    padding: SPACE.xl,
++  },
++  card: {
++    width: "100%",
++    maxWidth: 340,
++    backgroundColor: "#0a0a0a",
++    borderRadius: RADIUS.xl,
++    borderWidth: 1,
++    borderColor: COLORS.borderRed,
++    padding: SPACE.lg,
++    gap: SPACE.xs,
++    shadowColor: "#000",
++    shadowOpacity: 0.6,
++    shadowRadius: 30,
++    shadowOffset: { width: 0, height: 14 },
++    elevation: 10,
++  },
++  iconWrap: {
++    alignItems: "center",
++    marginBottom: 2,
++  },
++  title: {
++    color: COLORS.text,
++    fontSize: 18,
++    fontWeight: "900",
++    textAlign: "center",
++  },
++  message: {
++    color: COLORS.textDim,
++    fontSize: 14,
++    lineHeight: 20,
++    textAlign: "center",
++    marginTop: 2,
++  },
++  buttons: {
++    flexDirection: "row",
++    gap: SPACE.xs,
++    marginTop: SPACE.md,
++  },
++  buttonsStacked: {
++    flexDirection: "column",
++  },
++  button: {
++    flex: 1,
++    height: 48,
++    borderRadius: RADIUS.md,
++    backgroundColor: COLORS.red,
++    alignItems: "center",
++    justifyContent: "center",
++  },
++  buttonFull: {
++    flex: undefined,
++    width: "100%",
++  },
++  buttonCancel: {
++    backgroundColor: "transparent",
++    borderWidth: 1,
++    borderColor: COLORS.border,
++  },
++  buttonDestructive: {
++    backgroundColor: "transparent",
++    borderWidth: 1,
++    borderColor: "rgba(255,46,46,0.5)",
++  },
++  buttonPressed: {
++    opacity: 0.85,
++  },
++  buttonText: {
++    color: "#000",
++    fontWeight: "900",
++    fontSize: 15,
++  },
++  buttonTextCancel: {
++    color: COLORS.textDim,
++  },
++  buttonTextDestructive: {
++    color: COLORS.red,
++  },
++});
+diff --git a/src/screens/PaymentMethodsScreen.tsx b/src/screens/PaymentMethodsScreen.tsx
+index b3bcb39..fe07b49 100644
+--- a/src/screens/PaymentMethodsScreen.tsx
++++ b/src/screens/PaymentMethodsScreen.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import * as WebBrowser from "expo-web-browser";
+ import { useFocusEffect } from "expo-router";
+diff --git a/src/screens/PrivacyScreen.tsx b/src/screens/PrivacyScreen.tsx
+index a824181..4033c4d 100644
+--- a/src/screens/PrivacyScreen.tsx
++++ b/src/screens/PrivacyScreen.tsx
+@@ -1,5 +1,6 @@
+ import React, { useEffect, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { router } from "expo-router";
+ import { resetTo } from "../lib/navigation";
+ 
+diff --git a/src/screens/ProfileScreen.tsx b/src/screens/ProfileScreen.tsx
+index 31b04f6..5042276 100644
+--- a/src/screens/ProfileScreen.tsx
++++ b/src/screens/ProfileScreen.tsx
+@@ -1,5 +1,6 @@
+ import React, { useEffect, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Image, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Image } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import { router } from "expo-router";
+ import { resetTo } from "../lib/navigation";
+diff --git a/src/screens/RideChatScreen.tsx b/src/screens/RideChatScreen.tsx
+index a111233..d703dbb 100644
+--- a/src/screens/RideChatScreen.tsx
++++ b/src/screens/RideChatScreen.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useEffect, useRef, useState } from "react";
+-import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
++import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { router, useLocalSearchParams } from "expo-router";
+ import { resetTo } from "../lib/navigation";
+ 
+diff --git a/src/screens/SafetyScreen.tsx b/src/screens/SafetyScreen.tsx
+index 36a59af..1ccecf0 100644
+--- a/src/screens/SafetyScreen.tsx
++++ b/src/screens/SafetyScreen.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, Pressable } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import * as Location from "expo-location";
+ import { useFocusEffect } from "expo-router";
+diff --git a/src/screens/SpendingReportScreen.tsx b/src/screens/SpendingReportScreen.tsx
+index 380f034..ae4f551 100644
+--- a/src/screens/SpendingReportScreen.tsx
++++ b/src/screens/SpendingReportScreen.tsx
+@@ -1,5 +1,6 @@
+ import React, { useCallback, useEffect, useState } from "react";
+-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Alert } from "react-native";
++import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
++import { Alert } from "../lib/themedAlert";
+ import { Ionicons } from "@expo/vector-icons";
+ import { useFocusEffect } from "expo-router";
+ 

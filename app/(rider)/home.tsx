@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  View, Text, StyleSheet, Pressable, TextInput,
-  FlatList, ActivityIndicator, ScrollView, Alert, Linking, BackHandler,
-} from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, FlatList, ActivityIndicator, ScrollView, Linking, BackHandler } from "react-native";
+import { Alert } from "../../src/lib/themedAlert";
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline, Region } from "react-native-maps";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";

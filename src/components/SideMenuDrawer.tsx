@@ -1,14 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  Alert,
-  Animated,
-  Dimensions,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Animated, Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert } from "../lib/themedAlert";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 

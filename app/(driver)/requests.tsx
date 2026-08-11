@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TextInput, Pressable, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TextInput, Pressable } from "react-native";
+import { Alert } from "../../src/lib/themedAlert";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 

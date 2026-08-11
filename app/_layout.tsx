@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import { Stack, router } from "expo-router";
-import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { supabase } from "../src/lib/supabase";
 import { registerAndSavePushToken, addNotificationTapListener } from "../src/lib/pushNotifications";
 import { resetTo } from "../src/lib/navigation";
+import { Alert, AlertProvider } from "../src/lib/themedAlert";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -100,12 +100,14 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: "fade",
-        }}
-      />
+      <AlertProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: "fade",
+          }}
+        />
+      </AlertProvider>
     </SafeAreaProvider>
   );
 }

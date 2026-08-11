@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { Alert } from "../../src/lib/themedAlert";
 import { router, useFocusEffect } from "expo-router";
 
 import Screen from "../../src/components/Screen";

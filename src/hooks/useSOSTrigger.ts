@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert } from "react-native";
+import { Alert } from "../lib/themedAlert";
 import { router } from "expo-router";
 import * as Location from "expo-location";
 

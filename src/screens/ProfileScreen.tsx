@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Image, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable, Image } from "react-native";
+import { Alert } from "../lib/themedAlert";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { resetTo } from "../lib/navigation";

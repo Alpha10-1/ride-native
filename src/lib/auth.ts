@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { resetTo } from "./navigation";
-import { Alert } from "react-native";
+import { Alert } from "./themedAlert";
 import { registerAndSavePushToken } from "./pushNotifications";
 
 // Supabase Auth requires an email. Since this app authenticates by username,
