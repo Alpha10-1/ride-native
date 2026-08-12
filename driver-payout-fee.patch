@@ -1,0 +1,298 @@
+diff --git a/app/(driver)/payout-method.tsx b/app/(driver)/payout-method.tsx
+index ccfa69c..eabcd72 100644
+--- a/app/(driver)/payout-method.tsx
++++ b/app/(driver)/payout-method.tsx
+@@ -123,17 +123,9 @@ export default function DriverPayoutMethodScreen() {
+ 
+   const hasPending = requests.some((r) => r.status === "pending");
+ 
+-  const handleRequestPayout = async () => {
+-    const rands = parseFloat(amountInput.replace(",", "."));
+-    if (!rands || rands <= 0) {
+-      Alert.alert("Enter an amount", "Enter how much you'd like to withdraw.");
+-      return;
+-    }
+-    const cents = Math.round(rands * 100);
+-    if (cents > balanceCents) {
+-      Alert.alert("Amount too high", "That's more than your available balance.");
+-      return;
+-    }
++  const PAYOUT_FEE_CENTS = 500; // R5 flat fee per payout request
++
++  const submitPayoutRequest = async (cents: number) => {
+     setRequesting(true);
+     try {
+       await requestPayout(cents);
+@@ -147,6 +139,32 @@ export default function DriverPayoutMethodScreen() {
+     }
+   };
+ 
++  const handleRequestPayout = async () => {
++    const rands = parseFloat(amountInput.replace(",", "."));
++    if (!rands || rands <= 0) {
++      Alert.alert("Enter an amount", "Enter how much you'd like to withdraw.");
++      return;
++    }
++    const cents = Math.round(rands * 100);
++    if (cents + PAYOUT_FEE_CENTS > balanceCents) {
++      Alert.alert(
++        "Amount too high",
++        `That's more than your available balance once the ${formatCents(PAYOUT_FEE_CENTS)} fee is included.`
++      );
++      return;
++    }
++    Alert.alert(
++      `${formatCents(PAYOUT_FEE_CENTS)} payout fee applies`,
++      `A ${formatCents(PAYOUT_FEE_CENTS)} processing fee will be deducted from your wallet in addition to the ${formatCents(
++        cents
++      )} you're requesting, for a total of ${formatCents(cents + PAYOUT_FEE_CENTS)}.`,
++      [
++        { text: "Cancel", style: "cancel" },
++        { text: "Continue", onPress: () => submitPayoutRequest(cents) },
++      ]
++    );
++  };
++
+   if (loading) {
+     return (
+       <Screen>
+@@ -190,6 +208,7 @@ export default function DriverPayoutMethodScreen() {
+                 onChangeText={setAmountInput}
+                 keyboardType="numeric"
+               />
++              <Text style={styles.hint}>A {formatCents(PAYOUT_FEE_CENTS)} processing fee applies to every payout request.</Text>
+               <PrimaryButton
+                 label={requesting ? "Requesting..." : "Request Payout"}
+                 onPress={handleRequestPayout}
+diff --git a/supabase/migrations/20260812120000_driver_payout_requests.sql b/supabase/migrations/20260812120000_driver_payout_requests.sql
+new file mode 100644
+index 0000000..cce3a6c
+--- /dev/null
++++ b/supabase/migrations/20260812120000_driver_payout_requests.sql
+@@ -0,0 +1,226 @@
++-- Driver payout requests.
++-- Manual flow: request_payout() deducts (amount + R5 fee) from the driver's
++-- wallet immediately and creates a 'pending' row; an admin reviews it in
++-- admin-dashboard and pays the driver's bank account externally, then marks
++-- it approved/paid, or rejects it (which refunds the full amount + fee back
++-- to the wallet).
++
++create table if not exists public.payout_requests (
++  id uuid primary key default gen_random_uuid(),
++  driver_id uuid not null references public.profiles(id) on delete cascade,
++  amount_cents integer not null check (amount_cents > 0),
++  fee_cents integer not null default 500 check (fee_cents >= 0),
++  status text not null default 'pending' check (status in ('pending', 'approved', 'paid', 'rejected')),
++  bank_name text not null,
++  bank_account_holder text not null,
++  bank_account_number text not null,
++  bank_branch_code text,
++  admin_notes text,
++  requested_at timestamptz not null default now(),
++  processed_at timestamptz
++);
++
++create index if not exists payout_requests_driver_id_idx on public.payout_requests(driver_id);
++create index if not exists payout_requests_status_idx on public.payout_requests(status);
++
++alter table public.payout_requests enable row level security;
++
++drop policy if exists "Drivers can view their own payout requests" on public.payout_requests;
++create policy "Drivers can view their own payout requests"
++  on public.payout_requests for select
++  using (driver_id = auth.uid());
++
++drop policy if exists "Admins can view all payout requests" on public.payout_requests;
++create policy "Admins can view all payout requests"
++  on public.payout_requests for select
++  using (exists (select 1 from public.profiles where id = auth.uid() and is_admin = true));
++
++-- ============================================
++-- request_payout: driver-facing
++-- ============================================
++create or replace function public.request_payout(amount_cents_in integer)
++returns public.payout_requests
++language plpgsql
++security definer
++set search_path = public
++as $$
++#variable_conflict use_column
++declare
++  v_fee_cents integer := 500; -- R5 flat fee per payout request
++  v_total_cents integer;
++  v_wallet public.wallets;
++  v_bank record;
++  v_row public.payout_requests;
++begin
++  if auth.uid() is null then
++    raise exception 'Not signed in.';
++  end if;
++
++  if amount_cents_in is null or amount_cents_in <= 0 then
++    raise exception 'Enter an amount greater than zero.';
++  end if;
++
++  if exists (
++    select 1 from public.payout_requests
++    where driver_id = auth.uid() and status = 'pending'
++  ) then
++    raise exception 'You already have a payout request pending review.';
++  end if;
++
++  select bank_name, bank_account_holder, bank_account_number, bank_branch_code
++    into v_bank
++    from public.profiles
++    where id = auth.uid();
++
++  if v_bank.bank_account_number is null or v_bank.bank_account_number = '' then
++    raise exception 'Add your bank details before requesting a payout.';
++  end if;
++
++  v_total_cents := amount_cents_in + v_fee_cents;
++
++  select * into v_wallet
++    from public.wallets
++    where profile_id = auth.uid()
++    for update;
++
++  if v_wallet.id is null then
++    raise exception 'Wallet not found.';
++  end if;
++
++  if v_total_cents > v_wallet.balance_cents then
++    raise exception 'That is more than your available balance once the R5 fee is included.';
++  end if;
++
++  update public.wallets
++    set balance_cents = balance_cents - v_total_cents,
++        updated_at = now()
++    where profile_id = auth.uid();
++
++  insert into public.wallet_transactions (wallet_id, amount_cents, kind, description)
++  values (v_wallet.id, -v_total_cents, 'adjustment', 'Payout request (includes R5 fee)');
++
++  insert into public.payout_requests (
++    driver_id, amount_cents, fee_cents, status,
++    bank_name, bank_account_holder, bank_account_number, bank_branch_code
++  ) values (
++    auth.uid(), amount_cents_in, v_fee_cents, 'pending',
++    v_bank.bank_name, v_bank.bank_account_holder, v_bank.bank_account_number, v_bank.bank_branch_code
++  )
++  returning * into v_row;
++
++  return v_row;
++end;
++$$;
++
++grant execute on function public.request_payout(integer) to authenticated;
++
++-- ============================================
++-- Admin review actions
++-- ============================================
++create or replace function public.admin_approve_payout_request(request_id_in uuid, admin_notes_in text default null)
++returns public.payout_requests
++language plpgsql
++security definer
++set search_path = public
++as $$
++#variable_conflict use_column
++declare
++  v_row public.payout_requests;
++begin
++  if not exists (select 1 from public.profiles where id = auth.uid() and is_admin = true) then
++    raise exception 'Not authorized.';
++  end if;
++
++  update public.payout_requests
++    set status = 'approved',
++        admin_notes = coalesce(admin_notes_in, admin_notes),
++        processed_at = now()
++    where id = request_id_in and status = 'pending'
++    returning * into v_row;
++
++  if v_row.id is null then
++    raise exception 'Payout request not found or not pending.';
++  end if;
++
++  return v_row;
++end;
++$$;
++
++create or replace function public.admin_mark_payout_paid(request_id_in uuid, admin_notes_in text default null)
++returns public.payout_requests
++language plpgsql
++security definer
++set search_path = public
++as $$
++#variable_conflict use_column
++declare
++  v_row public.payout_requests;
++begin
++  if not exists (select 1 from public.profiles where id = auth.uid() and is_admin = true) then
++    raise exception 'Not authorized.';
++  end if;
++
++  update public.payout_requests
++    set status = 'paid',
++        admin_notes = coalesce(admin_notes_in, admin_notes),
++        processed_at = now()
++    where id = request_id_in and status in ('pending', 'approved')
++    returning * into v_row;
++
++  if v_row.id is null then
++    raise exception 'Payout request not found or not payable.';
++  end if;
++
++  return v_row;
++end;
++$$;
++
++create or replace function public.admin_reject_payout_request(request_id_in uuid, admin_notes_in text default null)
++returns public.payout_requests
++language plpgsql
++security definer
++set search_path = public
++as $$
++#variable_conflict use_column
++declare
++  v_row public.payout_requests;
++  v_wallet public.wallets;
++  v_refund_cents integer;
++begin
++  if not exists (select 1 from public.profiles where id = auth.uid() and is_admin = true) then
++    raise exception 'Not authorized.';
++  end if;
++
++  update public.payout_requests
++    set status = 'rejected',
++        admin_notes = coalesce(admin_notes_in, admin_notes),
++        processed_at = now()
++    where id = request_id_in and status = 'pending'
++    returning * into v_row;
++
++  if v_row.id is null then
++    raise exception 'Payout request not found or not pending.';
++  end if;
++
++  v_refund_cents := v_row.amount_cents + v_row.fee_cents;
++
++  select * into v_wallet
++    from public.wallets
++    where profile_id = v_row.driver_id
++    for update;
++
++  update public.wallets
++    set balance_cents = balance_cents + v_refund_cents,
++        updated_at = now()
++    where profile_id = v_row.driver_id;
++
++  insert into public.wallet_transactions (wallet_id, amount_cents, kind, description)
++  values (v_wallet.id, v_refund_cents, 'adjustment', 'Payout request rejected — refund (incl. R5 fee)');
++
++  return v_row;
++end;
++$$;
++
++grant execute on function public.admin_approve_payout_request(uuid, text) to authenticated;
++grant execute on function public.admin_mark_payout_paid(uuid, text) to authenticated;
++grant execute on function public.admin_reject_payout_request(uuid, text) to authenticated;

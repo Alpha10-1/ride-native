@@ -123,17 +123,9 @@ export default function DriverPayoutMethodScreen() {
 
   const hasPending = requests.some((r) => r.status === "pending");
 
-  const handleRequestPayout = async () => {
-    const rands = parseFloat(amountInput.replace(",", "."));
-    if (!rands || rands <= 0) {
-      Alert.alert("Enter an amount", "Enter how much you'd like to withdraw.");
-      return;
-    }
-    const cents = Math.round(rands * 100);
-    if (cents > balanceCents) {
-      Alert.alert("Amount too high", "That's more than your available balance.");
-      return;
-    }
+  const PAYOUT_FEE_CENTS = 500; // R5 flat fee per payout request
+
+  const submitPayoutRequest = async (cents: number) => {
     setRequesting(true);
     try {
       await requestPayout(cents);
@@ -145,6 +137,32 @@ export default function DriverPayoutMethodScreen() {
     } finally {
       setRequesting(false);
     }
+  };
+
+  const handleRequestPayout = async () => {
+    const rands = parseFloat(amountInput.replace(",", "."));
+    if (!rands || rands <= 0) {
+      Alert.alert("Enter an amount", "Enter how much you'd like to withdraw.");
+      return;
+    }
+    const cents = Math.round(rands * 100);
+    if (cents + PAYOUT_FEE_CENTS > balanceCents) {
+      Alert.alert(
+        "Amount too high",
+        `That's more than your available balance once the ${formatCents(PAYOUT_FEE_CENTS)} fee is included.`
+      );
+      return;
+    }
+    Alert.alert(
+      `${formatCents(PAYOUT_FEE_CENTS)} payout fee applies`,
+      `A ${formatCents(PAYOUT_FEE_CENTS)} processing fee will be deducted from your wallet in addition to the ${formatCents(
+        cents
+      )} you're requesting, for a total of ${formatCents(cents + PAYOUT_FEE_CENTS)}.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Continue", onPress: () => submitPayoutRequest(cents) },
+      ]
+    );
   };
 
   if (loading) {
@@ -190,6 +208,7 @@ export default function DriverPayoutMethodScreen() {
                 onChangeText={setAmountInput}
                 keyboardType="numeric"
               />
+              <Text style={styles.hint}>A {formatCents(PAYOUT_FEE_CENTS)} processing fee applies to every payout request.</Text>
               <PrimaryButton
                 label={requesting ? "Requesting..." : "Request Payout"}
                 onPress={handleRequestPayout}
