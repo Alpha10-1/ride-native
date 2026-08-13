@@ -128,11 +128,12 @@ async function invokeAndUnwrap(functionName: string, body?: Record<string, unkno
   return data;
 }
 
-// Starts the "Add card" flow: a Paystack Preauthorization hold that gets
-// released automatically the moment it's confirmed (see
-// paystack-initialize-card-verification / the webhook's
-// preauthorization.reserve.success handler) — the card gets verified and
-// saved, but nothing is ever actually charged. Open the returned URL with
+// Starts the "Add card" flow: a real R1 charge+refund via Paystack (see
+// paystack-initialize-card-verification for why this replaced the
+// original Preauthorization hold — that API needs South-Africa merchant
+// eligibility approval that's still pending). The card gets verified and
+// saved, and the R1 is refunded automatically, though the refund itself
+// can take a few business days to clear. Open the returned URL with
 // expo-web-browser, same as any other Paystack checkout.
 export async function startCardVerification(): Promise<{ authorizationUrl: string; reference: string; amountCents: number }> {
   const data = await invokeAndUnwrap("paystack-initialize-card-verification", {});

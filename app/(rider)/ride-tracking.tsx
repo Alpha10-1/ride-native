@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Image } from "react-native";
 import { Alert } from "../../src/lib/themedAlert";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
 import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
@@ -485,11 +485,15 @@ export default function RideTrackingScreen() {
 
           {ride.driver_id && driverInfo && (
             <GlassCard style={styles.driverCard}>
-              <View style={styles.driverAvatar}>
-                <Text style={styles.driverAvatarTxt}>
-                  {`${driverInfo.first_name?.[0] ?? ""}${driverInfo.last_name?.[0] ?? ""}`.toUpperCase() || "?"}
-                </Text>
-              </View>
+              {driverInfo.avatar_url ? (
+                <Image source={{ uri: driverInfo.avatar_url }} style={styles.driverAvatarImg} />
+              ) : (
+                <View style={styles.driverAvatar}>
+                  <Text style={styles.driverAvatarTxt}>
+                    {`${driverInfo.first_name?.[0] ?? ""}${driverInfo.last_name?.[0] ?? ""}`.toUpperCase() || "?"}
+                  </Text>
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={styles.driverName}>
                   {driverInfo.first_name} {driverInfo.last_name}
@@ -730,6 +734,10 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   driverAvatarTxt: { color: COLORS.red, fontWeight: "900", fontSize: 16 },
+  driverAvatarImg: {
+    width: 44, height: 44, borderRadius: 22,
+    borderWidth: 1.5, borderColor: "rgba(255,46,46,0.35)",
+  },
   driverName: { color: COLORS.text, fontWeight: "900", fontSize: 15 },
   driverMeta: { color: COLORS.textFaint, fontSize: 12, marginTop: 2 },
   plateBadge: {

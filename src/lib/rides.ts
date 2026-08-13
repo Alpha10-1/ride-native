@@ -239,6 +239,7 @@ export async function getRideById(rideId: string): Promise<Ride | null> {
 export type DriverContactInfo = {
   first_name: string;
   last_name: string;
+  avatar_url: string | null;
   vehicle_make: string | null;
   vehicle_model: string | null;
   license_plate: string | null;
@@ -253,7 +254,7 @@ export type DriverContactInfo = {
 export async function getDriverContactInfo(driverId: string): Promise<DriverContactInfo | null> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("first_name, last_name, vehicle_make, vehicle_model, license_plate, avg_rating, rating_count")
+    .select("first_name, last_name, avatar_url, vehicle_make, vehicle_model, license_plate, avg_rating, rating_count")
     .eq("id", driverId)
     .single();
   if (error) {
