@@ -55,6 +55,35 @@ export async function setDriverOnlineChecked(lat?: number, lng?: number): Promis
   if (error) throw error;
 }
 
+// Reads back the driver's actual server-side online flag.
+// driver_notification_presence.online is kept in sync by both
+// setDriverOnlineStatus (via ping_driver_notification_location /
+// set_driver_notification_offline above) and go_online_test_checked, so
+// it's the closest thing to a single source of truth this client can
+// read directly (RLS: "drivers manage own notification presence" scopes
+// this to the caller's own row).
+//
+// Needed because src/lib/driverStatus.ts's `online` flag is in-memory
+// only and always initializes to `false` on a fresh JS process — a real
+// app relaunch, or an uncaught-exception crash-and-relaunch, silently
+// shows the driver as "Offline" in the UI even if the server still has
+// them online. Returns null (rather than throwing) if there's no row
+// yet or the read fails, so callers can treat "unknown" the same as
+// "don't touch the current UI state".
+export async function getDriverPresenceOnline(): Promise<boolean | null> {
+  const { data: session } = await supabase.auth.getSession();
+  const driverId = session.session?.user.id;
+  if (!driverId) return null;
+
+  const { data, error } = await supabase
+    .from("driver_notification_presence")
+    .select("online")
+    .eq("driver_id", driverId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return !!data.online;
+}
+
 // Generic presence ping — any signed-in user (rider or driver). Purely so
 // proximity pushes (new ride requests to nearby drivers) have a recent
 // location to work from.

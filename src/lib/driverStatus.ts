@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import * as Location from "expo-location";
 
-import { setDriverOnlineStatus, setDriverOnlineChecked, updateMyLocation } from "./presence";
+import {
+  setDriverOnlineStatus, setDriverOnlineChecked, updateMyLocation, getDriverPresenceOnline,
+} from "./presence";
 import { getMySubscriptionGate } from "./subscription";
 import { isTestModeRestrictionError } from "./testMode";
 
@@ -122,6 +124,29 @@ export function setDriverOnline(value: boolean): void {
 
 export function toggleDriverOnline(): void {
   setDriverOnline(!online);
+}
+
+// Rehydrates the in-memory `online` flag from the server's actual
+// presence value — see getDriverPresenceOnline() in presence.ts for why
+// this is needed (in-memory flag always starts false on a fresh process,
+// including after a crash-relaunch, regardless of the driver's real
+// online state server-side).
+//
+// Deliberately goes through the full setDriverOnline(value) path rather
+// than just patching local state: if the server says "online", the
+// driver genuinely needs the polling/GPS-watch/refresh-timer side
+// effects (re)started, not just a UI label flipped — same as if they'd
+// tapped Go Online themselves. setDriverOnline's own `value === online`
+// guard already makes this a no-op when nothing actually changed (the
+// normal case), so calling this on every focus is cheap.
+export async function syncDriverOnlineFromServer(): Promise<void> {
+  try {
+    const serverOnline = await getDriverPresenceOnline();
+    if (serverOnline === null) return; // unknown — don't touch current UI state
+    setDriverOnline(serverOnline);
+  } catch {
+    // best-effort — never block screen load over this
+  }
 }
 
 export function subscribeDriverOnline(listener: Listener): () => void {

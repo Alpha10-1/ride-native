@@ -6,6 +6,7 @@ import { supabase } from "../src/lib/supabase";
 import { registerAndSavePushToken, addNotificationTapListener } from "../src/lib/pushNotifications";
 import { resetTo } from "../src/lib/navigation";
 import { Alert, AlertProvider } from "../src/lib/themedAlert";
+import ErrorBoundary from "../src/components/ErrorBoundary";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -101,12 +102,14 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AlertProvider>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: "fade",
-          }}
-        />
+        <ErrorBoundary>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: "fade",
+            }}
+          />
+        </ErrorBoundary>
       </AlertProvider>
     </SafeAreaProvider>
   );

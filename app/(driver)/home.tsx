@@ -32,7 +32,7 @@ import { getCurrentProfile } from "../../src/lib/auth";
 import { getMyVerificationStatus, VerificationStatus } from "../../src/lib/verification";
 import { getMySubscriptionGate, SubscriptionGate } from "../../src/lib/subscription";
 import { haversineKm, formatDistance, progressiveRadiusKm } from "../../src/lib/geo";
-import { useDriverOnline, subscribeSubscriptionBlocked } from "../../src/lib/driverStatus";
+import { useDriverOnline, subscribeSubscriptionBlocked, syncDriverOnlineFromServer } from "../../src/lib/driverStatus";
 import { updateMyLocation } from "../../src/lib/presence";
 import { getMyTestModeStatus, TestModeStatus } from "../../src/lib/testMode";
 import TestModeBanner from "../../src/components/TestModeBanner";
@@ -109,6 +109,13 @@ export default function DriverHome() {
   // and refresh profile/earnings every time this screen gains focus.
   useFocusEffect(useCallback(() => {
     let cancelled = false;
+    // Rehydrate the Go Online toggle from the server's actual presence
+    // record — the in-memory flag behind useDriverOnline() always starts
+    // false on a fresh JS process (real relaunch, or a crash-relaunch),
+    // so without this a driver who really is still online server-side
+    // can land back on this screen showing "Offline". No-ops instantly
+    // if the two are already in sync.
+    syncDriverOnlineFromServer();
     getActiveRideForDriver()
       .then((active) => {
         if (active && !cancelled) {
