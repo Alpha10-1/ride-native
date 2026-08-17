@@ -50,6 +50,48 @@ const HUAWEI_MAVEN_REPO = 'maven { url "https://developer.huawei.com/repo/" }';
 const AGCONNECT_CLASSPATH = "classpath 'com.huawei.agconnect:agcp:1.9.3.301'";
 const AGCONNECT_APPLY = "apply plugin: 'com.huawei.agconnect'";
 
+// Huawei's AGConnect Gradle plugin (AGCPlugin.groovy) parses the
+// buildscript.dependencies block as TEXT, scanning for a
+// "com.android.tools.build:gradle:VERSION" string with an explicit
+// version, in order to decide how to hook into the Android build. It
+// throws "com.android.tools.build:gradle is no set in the build.gradle
+// file" if it can't find one.
+//
+// Modern Expo/RN templates don't declare AGP with a pinned version in
+// this block anymore — the generated line is the unversioned
+// `classpath("com.android.tools.build:gradle")`, with the actual version
+// resolved separately via settings.gradle's plugin management block
+// (expoAutolinking.useExpoVersionCatalog(), which reads AGP's version
+// from react-native/gradle/libs.versions.toml). That resolution works
+// fine for Gradle itself, but AGConnect's plugin can't see it — it only
+// looks at this file's text.
+//
+// This is a known, documented incompatibility, not specific to this
+// project — see https://github.com/HMS-Core/hms-flutter-plugin/issues/398
+// and https://github.com/HMS-Core/hms-react-native-plugin/issues/301.
+//
+// Fix: add a second, explicitly-versioned classpath line for AGConnect's
+// benefit. We pin it to match whatever version React Native's own
+// version catalog resolves to, read live from
+// node_modules/react-native/gradle/libs.versions.toml, so this doesn't
+// silently drift out of sync if RN is upgraded later. Having both the
+// unversioned line (which Expo/RN's own tooling relies on) and this
+// versioned one is safe: they resolve to the identical artifact, so
+// Gradle doesn't see a real version conflict.
+function resolveReactNativeAgpVersion(projectRoot) {
+  const catalogPath = path.join(
+    projectRoot,
+    "node_modules",
+    "react-native",
+    "gradle",
+    "libs.versions.toml"
+  );
+  if (!fs.existsSync(catalogPath)) return null;
+  const contents = fs.readFileSync(catalogPath, "utf8");
+  const match = contents.match(/^agp\s*=\s*["']([^"']+)["']/m);
+  return match ? match[1] : null;
+}
+
 function withHmsProjectGradle(config) {
   return withProjectBuildGradle(config, (config) => {
     // Always runs — see the note at the top of this file for why the
@@ -63,6 +105,22 @@ function withHmsProjectGradle(config) {
         /repositories\s*{/g,
         (match) => `${match}\n        ${HUAWEI_MAVEN_REPO}`
       );
+    }
+
+    // See the comment above resolveReactNativeAgpVersion for why this is
+    // needed: AGConnect's plugin can't parse the unversioned AGP
+    // classpath line that Expo/RN's own template generates.
+    const agpVersion = resolveReactNativeAgpVersion(
+      config.modRequest.projectRoot
+    );
+    if (agpVersion) {
+      const versionedAgpClasspath = `classpath 'com.android.tools.build:gradle:${agpVersion}'`;
+      if (!contents.includes(versionedAgpClasspath)) {
+        contents = contents.replace(
+          /dependencies\s*{/,
+          (match) => `${match}\n        ${versionedAgpClasspath}`
+        );
+      }
     }
 
     if (!contents.includes(AGCONNECT_CLASSPATH)) {
