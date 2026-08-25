@@ -3,27 +3,33 @@
 // backend at runtime.
 //
 // Why this exists: react-native-maps' PROVIDER_GOOGLE and expo-location
-// both depend on Google Play Services. Huawei/Honor phones released after
-// the 2019 US trade restrictions (P40 onward, Mate 30 onward, most 2020+
-// Honor devices) ship WITHOUT Google Play Services — they run HMS Core
-// instead. On those devices, PROVIDER_GOOGLE renders a blank/stuck map and
-// expo-location silently fails to get a fix, since there's no Fused
-// Location Provider to call.
+// both depend on Google Play Services. Huawei phones released after the
+// 2019 US trade restrictions ship WITHOUT Google Play Services — they run
+// HMS Core instead. On those devices, PROVIDER_GOOGLE renders a
+// blank/stuck map and expo-location silently fails to get a fix, since
+// there's no Fused Location Provider to call.
 //
-// Requires (once you have Huawei AppGallery Connect set up):
-//   npm install @hmscore/react-native-hms-availability
-// Until that package is installed, detection falls back to a
-// manufacturer-only heuristic — see the comment below.
+// IMPORTANT — this is GMS-first, not manufacturer-first. An earlier
+// version of this function treated "manufacturer is Huawei or Honor" as a
+// proxy for "no GMS", which was true when it was written but stopped
+// being true for Honor specifically: Honor split off from Huawei in late
+// 2020 specifically to get out from under the US restriction, and Honor
+// phones from the Honor 50 (2021) onward ship with real, working GMS
+// again — often *alongside* leftover HMS Core infrastructure. Checking
+// manufacturer name alone can't tell those two cases apart; only checking
+// actual on-device service availability can. So this checks GMS
+// availability directly and prefers it whenever it's genuinely present,
+// regardless of brand — HMS is only used when GMS is truly absent.
+//
+// Requires:
+//   npm install react-native-device-info
+// which exposes hasGms()/hasHms() purpose-built for exactly this check
+// (backed by Google Play Services' own GoogleApiAvailability API under
+// the hood, not a name-based guess).
 import { Platform } from "react-native";
-import * as Device from "expo-device";
+import DeviceInfo from "react-native-device-info";
 
 export type MobileServiceProvider = "gms" | "hms";
-
-// Manufacturers whose current lineup ships HMS-only. Older devices from
-// these brands (pre-2019, e.g. P30, Mate 20) may still carry GMS — the
-// runtime HMS Core check below is the source of truth; this list only
-// decides which check we bother running first.
-const HMS_MANUFACTURERS = ["HUAWEI", "HONOR"];
 
 let cached: MobileServiceProvider | null = null;
 
@@ -33,34 +39,25 @@ export async function detectMobileServiceProvider(): Promise<MobileServiceProvid
   if (Platform.OS !== "android") return "gms";
   if (cached) return cached;
 
-  const manufacturer = (Device.manufacturer || "").toUpperCase();
-  if (!HMS_MANUFACTURERS.includes(manufacturer)) {
-    cached = "gms";
-    return cached;
-  }
-
-  // On known HMS-first hardware, confirm HMS Core is actually installed
-  // and usable rather than assuming from manufacturer alone.
   try {
-    // Lazy import: this package isn't installed until HMS setup is done
-    // (see app.json / plugins/withHmsCore.js). Until then this throws and
-    // we fall through to the manufacturer heuristic below.
-    const mod = await import("@hmscore/react-native-hms-availability");
-    // The package's shipped .d.ts doesn't declare a default export even
-    // though the runtime module has one (an already-instantiated
-    // HMSAvailability) — cast through `any` to work around the
-    // incomplete upstream types rather than fighting them here.
-    const HMSAvailability = (mod as any).default;
-    // Resolves to a numeric result code; 0 (ErrorCode.HMS_CORE_APK_AVAILABLE)
-    // means HMS Core is installed and up to date.
-    const resultCode = await HMSAvailability.isHuaweiMobileServicesAvailable();
-    cached = resultCode === 0 ? "hms" : "gms";
+    // hasGms() checks real GMS availability on-device (Google Play
+    // Services' own availability API), not a manufacturer guess. Prefer
+    // it whenever present — it's the better-tested, default path, and
+    // plenty of current Honor/even some Huawei devices genuinely have it.
+    const gmsAvailable = await DeviceInfo.hasGms();
+    if (gmsAvailable) {
+      cached = "gms";
+      return cached;
+    }
+
+    const hmsAvailable = await DeviceInfo.hasHms();
+    cached = hmsAvailable ? "hms" : "gms";
   } catch {
-    // Package not installed yet, or the native check itself failed.
-    // Route away from Google Maps on known-HMS hardware anyway — a blank
-    // Google Maps view is a worse failure mode than assuming HMS on a
-    // Huawei/Honor phone that happens to still have GMS.
-    cached = "hms";
+    // If the check itself fails for some reason, default to GMS — it's
+    // the far more common case across the installed base, and a failed
+    // detection shouldn't force every device down the less-tested HMS
+    // path.
+    cached = "gms";
   }
 
   return cached;
