@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
@@ -16,17 +16,59 @@ Notifications.setNotificationHandler({
   }),
 });
 
+export type PushPermissionResult = {
+  granted: boolean;
+  // false once the OS will no longer show its own permission dialog
+  // again (e.g. the user already dismissed/denied it once) — the only
+  // way to grant from here on is the system Settings app.
+  canAskAgain: boolean;
+};
+
+// Requests the real OS notification permission — this is what actually
+// controls whether a push can ever reach the device, independent of the
+// `notify_push` preference row in `profiles` (which only controls
+// whether the *server* bothers sending one). Callers that need to react
+// to a hard denial (e.g. the in-app toggle) should use this directly
+// instead of registerForPushNotificationsAsync, which swallows the
+// distinction for its fire-and-forget use at login/app-open.
+export async function ensurePushPermission(): Promise<PushPermissionResult> {
+  if (!Device.isDevice) {
+    // Simulators/emulators can't grant push permission at all — treat
+    // this as "granted" so in-app UI doesn't dead-end during dev/testing.
+    return { granted: true, canAskAgain: true };
+  }
+
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.status === "granted") {
+    return { granted: true, canAskAgain: existing.canAskAgain ?? true };
+  }
+  if (!existing.canAskAgain) {
+    return { granted: false, canAskAgain: false };
+  }
+
+  const requested = await Notifications.requestPermissionsAsync();
+  return {
+    granted: requested.status === "granted",
+    canAskAgain: requested.canAskAgain ?? false,
+  };
+}
+
+// Deep-links into this app's page in the system Settings app — the only
+// way left to grant notification permission once canAskAgain is false.
+export function openNotificationSettings(): void {
+  if (Platform.OS === "ios") {
+    Linking.openURL("app-settings:");
+  } else {
+    Linking.openSettings();
+  }
+}
+
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   // Push tokens don't work in the iOS Simulator / Android emulator.
   if (!Device.isDevice) return null;
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  if (existingStatus !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  if (finalStatus !== "granted") return null;
+  const { granted } = await ensurePushPermission();
+  if (!granted) return null;
 
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("default", {

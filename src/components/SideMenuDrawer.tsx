@@ -126,10 +126,20 @@ export default function SideMenuDrawer({
   return (
     <View
       pointerEvents={open ? "auto" : "none"}
-      style={[StyleSheet.absoluteFill, { zIndex: 999 }]}
+      // elevation+zIndex are both required on Android: any sibling screen
+      // content with its own `elevation` (e.g. SwipeableSheet's sheet,
+      // which sets elevation: 12) can otherwise paint — and receive
+      // touches — above this overlay regardless of zIndex or JSX order,
+      // which is exactly what let touches "pass through" the open drawer
+      // to the sheet underneath. Same pattern as pinConfirmWrap in
+      // (rider)/home.tsx. Value just needs to clear every sheet/overlay
+      // elevation used elsewhere in the app (currently max 12).
+      style={[StyleSheet.absoluteFill, { zIndex: 999, elevation: 999 }]}
     >
-      {/* Backdrop (blur + dim). Tap to close */}
-      <Animated.View style={[StyleSheet.absoluteFill, { opacity: backdrop }]}>
+      {/* Backdrop (blur + dim). Tap anywhere outside the panel to close. */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { opacity: backdrop, elevation: 999 }]}
+      >
         <BlurView intensity={35} tint="dark" style={StyleSheet.absoluteFill} />
         <Pressable onPress={onClose} style={[StyleSheet.absoluteFill, styles.dim]} />
       </Animated.View>
@@ -142,6 +152,7 @@ export default function SideMenuDrawer({
             width: panelW,
             height: H,
             transform: [{ translateX }],
+            elevation: 999,
           },
         ]}
       >

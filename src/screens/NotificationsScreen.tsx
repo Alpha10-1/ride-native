@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Switch, ActivityIndicator } from "react-native";
 import { router } from "expo-router";
+import { Alert } from "../lib/themedAlert";
 import { resetTo } from "../lib/navigation";
 
 import Screen from "../components/Screen";
@@ -8,6 +9,7 @@ import RiderHeader from "../components/RiderHeader";
 import GlassCard from "../components/GlassCard";
 import { COLORS, SPACE } from "../theme/tokens";
 import { getCurrentProfile, updatePreferences } from "../lib/auth";
+import { ensurePushPermission, openNotificationSettings, registerAndSavePushToken } from "../lib/pushNotifications";
 
 export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
@@ -35,13 +37,53 @@ export default function NotificationsScreen() {
   }, []);
 
   const handleTogglePush = async (value: boolean) => {
-    setPushEnabled(value);
+    // Turning it off never needs the OS permission — just stop the
+    // server from sending (the trigger functions check notify_push).
+    if (!value) {
+      setPushEnabled(false);
+      setSaving(true);
+      setError(null);
+      try {
+        await updatePreferences({ notifyPush: false });
+      } catch (e: any) {
+        setPushEnabled(true);
+        setError(e?.message ?? "Failed to save.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Turning it on requires the real OS permission — flipping this
+    // preference alone doesn't get a notification onto the device.
     setSaving(true);
     setError(null);
     try {
-      await updatePreferences({ notifyPush: value });
+      const { granted, canAskAgain } = await ensurePushPermission();
+      if (!granted) {
+        setPushEnabled(false);
+        if (!canAskAgain) {
+          Alert.alert(
+            "Notifications are off",
+            "Notifications for RIDE are turned off in your phone's settings. Open Settings to turn them back on.",
+            [
+              { text: "Not now", style: "cancel" },
+              { text: "Open Settings", onPress: () => openNotificationSettings() },
+            ]
+          );
+        } else {
+          setError("Notification permission is required to enable push notifications.");
+        }
+        return;
+      }
+
+      setPushEnabled(true);
+      await updatePreferences({ notifyPush: true });
+      // Permission may have just been granted for the first time —
+      // make sure the current push token is actually saved server-side.
+      registerAndSavePushToken().catch(() => {});
     } catch (e: any) {
-      setPushEnabled(!value);
+      setPushEnabled(false);
       setError(e?.message ?? "Failed to save.");
     } finally {
       setSaving(false);
