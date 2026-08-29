@@ -39,7 +39,7 @@ A companion web admin panel lives in a separate repo:
 |---|---|
 | App framework | [Expo](https://expo.dev) + [Expo Router](https://docs.expo.dev/router/introduction/) (file-based routing) |
 | UI | React Native 0.81, React 19 |
-| Maps | `react-native-maps` (Google Maps), Huawei HMS Map/Location for HMS devices |
+| Maps | `react-native-maps` (Google Maps) |
 | Backend | [Supabase](https://supabase.com) (Postgres, Auth, Edge Functions, Storage) |
 | Payments | [Paystack](https://paystack.com) |
 | Language | TypeScript |

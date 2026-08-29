@@ -11,9 +11,6 @@
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.3",
-    "@hmscore/react-native-hms-availability": "^6.12.0-301",
-    "@hmscore/react-native-hms-location": "^6.16.0-302",
-    "@hmscore/react-native-hms-map": "^6.12.0-301",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@supabase/supabase-js": "^2.108.2",
@@ -39,7 +36,6 @@
     "react-dom": "19.1.0",
     "react-leaflet": "^5.0.0",
     "react-native": "0.81.5",
-    "react-native-device-info": "^15.0.2",
     "react-native-maps": "1.20.1",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",

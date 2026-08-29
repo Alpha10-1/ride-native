@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Linking, Pressable } from "react-native";
 import { Alert } from "../../src/lib/themedAlert";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
-import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 
@@ -13,8 +12,6 @@ import SOSFab from "../../src/components/SOSFab";
 import SideMenuDrawer from "../../src/components/SideMenuDrawer";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { flyTo, regionFromCenterZoom } from "../../src/lib/mapCamera";
-import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
-import { PINS, stopPin } from "../../src/components/map/pins";
 import {
   Ride, getRideById, subscribeToRide,
   advanceRideStatus, completeRide, cancelRide,
@@ -44,7 +41,6 @@ function interpolateWaypoints(
 export default function ActiveTripScreen() {
   const { rideId } = useLocalSearchParams<{ rideId: string }>();
   const mapRef = useRef<MapView>(null);
-  const mobileServiceProvider = useMobileServiceProvider();
   const simulationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [ride, setRide] = useState<Ride | null>(null);
@@ -360,62 +356,32 @@ export default function ActiveTripScreen() {
   return (
     <Screen>
       <View style={styles.root}>
-        {mobileServiceProvider === "hms" ? (
-          // HMS Map Kit (Huawei/Honor devices without Google Play
-          // Services — see src/lib/mobileServices.ts). Not build-tested
-          // against real HMS Core hardware; verify prop names once
-          // @hmscore/react-native-hms-map is installed.
-          <HMSMap
-            style={StyleSheet.absoluteFill}
-            camera={{ target: { latitude: ride.pickup_lat, longitude: ride.pickup_lng }, zoom: 14 }}
-          >
-            <HMSMarker
-              coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }}
-              icon={PINS.pickup}
-              markerAnchor={[0.5, 0.5]}
-            />
-            {stops.map((stop, i) => (
-              <HMSMarker
-                key={stop.id}
-                coordinate={{ latitude: stop.lat, longitude: stop.lng }}
-                icon={stopPin(i + 1, !!stop.reached_at)}
-                markerAnchor={[0.5, 0.5]}
-              />
-            ))}
-            <HMSMarker
-              coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }}
-              icon={PINS.destination}
-              markerAnchor={[0.5, 1]}
-            />
-          </HMSMap>
-        ) : (
-          <MapView
-            ref={mapRef}
-            provider={PROVIDER_GOOGLE}
-            style={StyleSheet.absoluteFill}
-            initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
-          >
-            <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
-              <View style={styles.markerPickup}>
-                <Ionicons name="ellipse" size={10} color="#000" />
+        <MapView
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
+          style={StyleSheet.absoluteFill}
+          initialRegion={regionFromCenterZoom(ride.pickup_lng, ride.pickup_lat, 14)}
+        >
+          <Marker coordinate={{ latitude: ride.pickup_lat, longitude: ride.pickup_lng }} anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={styles.markerPickup}>
+              <Ionicons name="ellipse" size={10} color="#000" />
+            </View>
+          </Marker>
+
+          {stops.map((stop, i) => (
+            <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
+              <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
+                <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
               </View>
             </Marker>
+          ))}
 
-            {stops.map((stop, i) => (
-              <Marker key={stop.id} coordinate={{ latitude: stop.lat, longitude: stop.lng }} anchor={{ x: 0.5, y: 0.5 }}>
-                <View style={[styles.markerStop, stop.reached_at && styles.markerStopReached]}>
-                  <Text style={styles.markerStopTxt}>{stop.reached_at ? "✓" : i + 1}</Text>
-                </View>
-              </Marker>
-            ))}
-
-            <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
-              <View style={styles.markerDest}>
-                <Ionicons name="location" size={26} color={COLORS.red} />
-              </View>
-            </Marker>
-          </MapView>
-        )}
+          <Marker coordinate={{ latitude: ride.destination_lat, longitude: ride.destination_lng }} anchor={{ x: 0.5, y: 1 }}>
+            <View style={styles.markerDest}>
+              <Ionicons name="location" size={26} color={COLORS.red} />
+            </View>
+          </Marker>
+        </MapView>
 
         <SOSFab rideId={ride.id} role="driver" />
         <Pressable style={styles.menuFab} onPress={() => setMenuOpen(true)} hitSlop={8}>

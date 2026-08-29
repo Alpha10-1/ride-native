@@ -3,8 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Vibra
 import { Alert } from "../../src/lib/themedAlert";
 import { Ionicons } from "@expo/vector-icons";
 import MapView, { PROVIDER_GOOGLE, Marker } from "react-native-maps";
-import HMSMap, { HMSMarker } from "@hmscore/react-native-hms-map";
-import * as Location from "../../src/lib/locationService";
+import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
 import { resetTo, navigateFromMenu } from "../../src/lib/navigation";
 
@@ -17,8 +16,6 @@ import RowItem from "../../src/components/RowItem";
 import SOSFab from "../../src/components/SOSFab";
 import { COLORS, SPACE, RADIUS } from "../../src/theme/tokens";
 import { regionFromCenterZoom } from "../../src/lib/mapCamera";
-import { useMobileServiceProvider } from "../../src/hooks/useMobileServiceProvider";
-import { PINS } from "../../src/components/map/pins";
 import {
   Ride, getPendingRideRequests, getActiveRideForDriver,
   acceptRide, formatFare, TIER_CONFIG, getRideHistory,
@@ -75,7 +72,6 @@ export default function DriverHome() {
   const [newRequestBanner, setNewRequestBanner] = useState<NearbyRide | null>(null);
 
   const mapRef = useRef<MapView>(null);
-  const mobileServiceProvider = useMobileServiceProvider();
   const coordsRef = useRef<[number, number] | null>(null);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -404,31 +400,7 @@ export default function DriverHome() {
       <SOSFab role="driver" />
 
       <View style={styles.mapWrap}>
-        {coords && mobileServiceProvider === "hms" ? (
-          // HMS Map Kit (Huawei/Honor devices without Google Play
-          // Services — see src/lib/mobileServices.ts). HMS markers take an
-          // image `icon` rather than arbitrary JSX, so the fare pill
-          // becomes a marker `title` instead of an always-visible label —
-          // see PINS in src/components/map/pins.ts. Not build-tested
-          // against real HMS Core hardware; verify prop names once
-          // @hmscore/react-native-hms-map is installed.
-          <HMSMap
-            style={StyleSheet.absoluteFill}
-            camera={{ target: { latitude: coords[1], longitude: coords[0] }, zoom: 13 }}
-            myLocationEnabled
-            myLocationButtonEnabled={false}
-          >
-            {online && nearby.map((r) => (
-              <HMSMarker
-                key={r.id}
-                coordinate={{ latitude: r.pickup_lat, longitude: r.pickup_lng }}
-                icon={PINS.request}
-                markerAnchor={[0.5, 1]}
-                title={r.estimated_fare_cents ? formatFare(r.estimated_fare_cents) : "—"}
-              />
-            ))}
-          </HMSMap>
-        ) : coords ? (
+        {coords ? (
           <MapView
             ref={mapRef}
             provider={PROVIDER_GOOGLE}
