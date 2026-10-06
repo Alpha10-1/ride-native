@@ -87,19 +87,38 @@ export async function getDriverPresenceOnline(): Promise<boolean | null> {
 // Generic presence ping — any signed-in user (rider or driver). Purely so
 // proximity pushes (new ride requests to nearby drivers) have a recent
 // location to work from.
-export async function updateMyLocation(lat: number, lng: number): Promise<void> {
+//
+// Pass `{ driverOnline: true }` only from the online-driver refresh loop
+// (driverStatus.ts). That's what keeps driver_notification_presence
+// fresh — the new-ride-request trigger only considers pings from the
+// last 15 minutes (20260803150000).
+//
+// Bug fix: this used to ping driver_notification_presence with
+// online_in: true for every caller — riders on the home screen, and
+// drivers on driver home every 60s even while OFFLINE. That row is what
+// decides who gets "New ride request" pushes, and it's also what
+// syncDriverOnlineFromServer() reads back, so an offline driver kept
+// getting request pushes and was flipped back online on their next
+// visit to driver home.
+export async function updateMyLocation(
+  lat: number,
+  lng: number,
+  opts: { driverOnline?: boolean } = {}
+): Promise<void> {
   const { error } = await supabase.rpc("update_my_location", {
     lat_in: lat,
     lng_in: lng,
   });
   if (error) throw error;
 
-  // Keep driver_notification_presence fresh too — the matching trigger
-  // only considers pings from the last 15 minutes (20260803150000), so
-  // an online driver who never calls this again after their initial Go
-  // Online tap would silently stop being matchable. Harmless (and a
-  // no-op update) for riders calling this too, and best-effort either
-  // way — never worth failing a location update over.
+  if (opts.driverOnline) {
+    await pingDriverNotificationPresence(lat, lng);
+  }
+}
+
+// Marks this driver as online at (lat, lng) for new-ride-request pushes.
+// Best-effort — never worth failing a location update over.
+export async function pingDriverNotificationPresence(lat: number, lng: number): Promise<void> {
   try {
     await supabase.rpc("ping_driver_notification_location", {
       lat_in: lat,

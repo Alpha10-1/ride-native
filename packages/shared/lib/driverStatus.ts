@@ -3,6 +3,7 @@ import * as Location from "expo-location";
 
 import {
   setDriverOnlineStatus, setDriverOnlineChecked, updateMyLocation, getDriverPresenceOnline,
+  pingDriverNotificationPresence,
 } from "./presence";
 import { getMySubscriptionGate } from "./subscription";
 import { isTestModeRestrictionError } from "./testMode";
@@ -60,7 +61,9 @@ function revertToOffline(reason: string, kind: "subscription" | "test_mode" = "s
 async function pushLocationRefresh() {
   const coords = await getCurrentCoords();
   if (!coords) return;
-  updateMyLocation(coords.lat, coords.lng).catch(() => {});
+  // Only this loop marks the driver online for request pushes — and only
+  // while they actually are (see updateMyLocation in presence.ts).
+  updateMyLocation(coords.lat, coords.lng, { driverOnline: online }).catch(() => {});
 
   // Also re-check the subscription gate while online, so a driver whose
   // grace period expires (or whose retry charge fails) mid-shift gets
@@ -81,6 +84,13 @@ async function syncOnlineStatus(value: boolean) {
     try {
       const coords = await getCurrentCoords();
       await setDriverOnlineChecked(coords?.lat, coords?.lng);
+
+      // Matchable for request pushes immediately, rather than only after
+      // the first refresh tick (go_online_test_checked doesn't touch
+      // driver_notification_presence itself).
+      if (coords && online) {
+        pingDriverNotificationPresence(coords.lat, coords.lng);
+      }
 
       if (refreshTimer) clearInterval(refreshTimer);
       refreshTimer = setInterval(pushLocationRefresh, REFRESH_INTERVAL_MS);
