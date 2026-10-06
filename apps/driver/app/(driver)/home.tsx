@@ -177,7 +177,7 @@ export default function DriverHome() {
   // Lightweight presence ping — independent of the Go Online toggle, so
   // even a driver who's just browsing (not online) stays locatable for
   // nearby public SOS alerts. The online-specific refresh (for nearby ride
-  // request push) lives in src/lib/driverStatus.ts.
+  // request push) lives in packages/shared/lib/driverStatus.ts.
   useEffect(() => {
     const ping = async () => {
       try {

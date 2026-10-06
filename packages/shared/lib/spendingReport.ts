@@ -51,7 +51,7 @@ export function summarizeSpending(trips: SpendingTrip[]): SpendingSummary {
 // saves it to a persistent, user-visible location on the device (see
 // pdfSave.ts) — falling back to the OS share sheet if that's not
 // possible. Reuses the same branded template as the driver statement
-// (src/lib/statements.ts) so both documents look consistent.
+// (statements.ts) so both documents look consistent.
 export async function exportSpendingReportPdf(params: {
   riderName: string;
   period: StatementPeriod;

@@ -57,10 +57,11 @@ export default function SideMenuDrawer({
   const backdrop = useRef(new Animated.Value(0)).current;
 
   // Whether this account has already provided driver info at all
-  // (independent of which side of the app they're currently viewing) —
-  // decides whether the rider side shows the full "Apply" banner or just
-  // a quick "Switch to Driver" row, and lets the banner's press handler
-  // know whether to jump straight into registration.
+  // (independent of which app they're currently in) — decides whether
+  // the rider app shows the full "Apply" banner or just a quick
+  // "Open Ride Driver" row. Both hand off to the driver app via
+  // applyToDrive(), and that app sends unregistered accounts straight
+  // into registration.
   const [isRegisteredDriver, setIsRegisteredDriver] = useState(false);
   const [switching, setSwitching] = useState(false);
 

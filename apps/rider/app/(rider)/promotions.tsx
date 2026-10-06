@@ -1,7 +1,5 @@
-// Shared implementation lives in src/screens/PromotionsScreen.tsx
-// (role-aware internally, filtered by applies_to_role server-side). Both
-// (rider) and (driver) route files import it directly — deliberately NOT
-// re-exporting from each other's route file, since two route-group files
-// sharing the same leaf name both resolve to the same URL path and can be
-// misregistered.
+// Shared implementation lives in packages/shared/screens/PromotionsScreen.tsx
+// (role-aware internally via APP_ROLE, filtered by applies_to_role
+// server-side). The rider and driver apps each have their own route file
+// re-exporting it, like this one.
 export { default } from "@ride/shared/screens/PromotionsScreen";

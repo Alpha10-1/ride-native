@@ -9,11 +9,12 @@ import PrimaryButton from "../../components/PrimaryButton";
 import { COLORS, SPACE } from "../../theme/tokens";
 import { exchangeRecoverySession } from "../../lib/auth";
 
-// Opened via the ridenative://auth/confirm-email deep link sent by
-// linkRecoveryEmail() (src/lib/auth.ts). Tapping the emailed "Confirm new
-// email address" link hands the app a session token in the URL — once
-// exchanged, Supabase has already applied the email change server-side,
-// so this screen just needs to report success (or a stale/expired link).
+// Opened via this app's own auth/confirm-email deep link (appDeepLink(),
+// so ridenative:// or ridedriver://) sent by linkRecoveryEmail()
+// (lib/auth.ts). Tapping the emailed "Confirm new email address" link
+// hands the app a session token in the URL — once exchanged, Supabase
+// has already applied the email change server-side, so this screen just
+// needs to report success (or a stale/expired link).
 export default function ConfirmEmailScreen() {
   const [status, setStatus] = useState<"pending" | "done" | "error">("pending");
   const [linkError, setLinkError] = useState<string | null>(null);

@@ -43,6 +43,12 @@ yarn-error.*
 # generated native folders (one set per app)
 apps/*/ios/
 apps/*/android/
+# stale native folders from the pre-split single app
+/ios
+/android
+
+# Supabase CLI cache (link state, pooler URL) — run `npx supabase link` locally
+supabase/.temp/
 
 # Load testing — never commit generated test accounts
 loadtest/riders.json

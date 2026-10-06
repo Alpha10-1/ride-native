@@ -11,7 +11,7 @@ import { APP_ROLE } from "../lib/appConfig";
 // sits top-right for emergencies; this sits bottom-right so the two
 // never compete for the same corner or get mixed up with each other —
 // support chat is exactly what SupportChatScreen.tsx already handles
-// (role-aware internally via the fetched profile), so this is just a
+// (role-aware internally via APP_ROLE), so this is just a
 // quick door into it from wherever a rider/driver already is, instead of
 // requiring them to dig through Settings > Support first.
 export default function SupportChatFab({

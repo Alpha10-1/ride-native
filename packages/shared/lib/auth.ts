@@ -392,8 +392,8 @@ export async function completePasswordReset(newPassword: string) {
   if (error) throw error;
 }
 
-// Establishes a session from an emailed auth link's URL (opened via the
-// ridenative:// deep link) — used by both the password-reset link and the
+// Establishes a session from an emailed auth link's URL (opened via this
+// app's own appDeepLink()) — used by both the password-reset link and the
 // "confirm new email" link, since both just hand back a session token in
 // the same two shapes. Supports the modern PKCE `?code=` link format and,
 // as a fallback, the older `#access_token=` implicit format.

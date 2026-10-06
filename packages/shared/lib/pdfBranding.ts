@@ -1,6 +1,6 @@
 // Shared branding for on-device generated PDFs (expo-print HTML → PDF).
-// Used by both the driver statement (src/lib/statements.ts) and the
-// rider spending report (src/lib/spendingReport.ts) so both documents
+// Used by both the driver statement (statements.ts) and the rider
+// spending report (spendingReport.ts) so both documents
 // look like they came from the same company rather than two different
 // one-off exports.
 //

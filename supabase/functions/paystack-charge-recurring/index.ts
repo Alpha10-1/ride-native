@@ -86,8 +86,10 @@ async function notifyDriver(adminClient: any, driverId: string, title: string, b
 Deno.serve(async (req: Request) => {
   console.log("paystack-charge-recurring: invoked");
   const authHeader = req.headers.get("Authorization");
-  if (authHeader !== `Bearer ${CRON_SECRET}`) {
-    console.error("paystack-charge-recurring: unauthorized (Authorization header didn't match CRON_SECRET)");
+  // Reject outright if the secret isn't set — otherwise the expected header
+  // would be "Bearer undefined" and anyone sending that could run billing.
+  if (!CRON_SECRET || authHeader !== `Bearer ${CRON_SECRET}`) {
+    console.error("paystack-charge-recurring: unauthorized (CRON_SECRET unset, or Authorization header didn't match it)");
     return new Response("Unauthorized", { status: 401, headers: { "Content-Type": "application/json" } });
   }
 

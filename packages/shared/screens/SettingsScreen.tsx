@@ -1,4 +1,4 @@
-// src/screens/SettingsScreen.tsx
+// packages/shared/screens/SettingsScreen.tsx
 import React from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import Screen from "../components/Screen";

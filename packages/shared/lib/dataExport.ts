@@ -1,10 +1,10 @@
 // Backs the "Request my data" row on the Privacy screen
-// (src/screens/PrivacyScreen.tsx). Pulls every ride the signed-in rider
+// (screens/PrivacyScreen.tsx). Pulls every ride the signed-in rider
 // has ever been party to — any status, no date bounds — via
 // get_rider_data_export (20260805120000_rider_data_export.sql), then
 // renders it into a branded, shareable PDF using the same on-device
 // expo-print → share-sheet approach as the spending report
-// (src/lib/spendingReport.ts) and driver statements (src/lib/statements.ts).
+// (spendingReport.ts) and driver statements (statements.ts).
 
 import { supabase } from "./supabase";
 import { formatFare } from "./rides";

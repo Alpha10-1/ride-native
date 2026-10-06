@@ -4,10 +4,11 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { COLORS } from "../theme/tokens";
 import { useSOSTrigger } from "../hooks/useSOSTrigger";
+import { APP_ROLE } from "../lib/appConfig";
 
 // Always available (per design), but meant to be placed prominently as a
 // floating button on active trip screens.
-export default function SOSFab({ rideId, role = "rider" }: { rideId?: string; role?: "rider" | "driver" }) {
+export default function SOSFab({ rideId, role = APP_ROLE }: { rideId?: string; role?: "rider" | "driver" }) {
   const { presentSOSPrompt, busy } = useSOSTrigger({ rideId, role });
 
   return (

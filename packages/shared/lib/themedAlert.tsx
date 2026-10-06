@@ -27,7 +27,7 @@ let dispatch: ((title?: string, message?: string, buttons?: ThemedAlertButton[])
  * Drop-in replacement for React Native's `Alert`. Same call signature
  * (`Alert.alert(title, message, buttons)`), but renders as a themed modal
  * matching the app's dark/red styling instead of the OS system dialog.
- * Requires <AlertProvider> to be mounted (see app/_layout.tsx).
+ * Requires <AlertProvider> to be mounted (see screens/RootLayout.tsx).
  */
 export const Alert = {
   alert(title?: string, message?: string, buttons?: ThemedAlertButton[]) {

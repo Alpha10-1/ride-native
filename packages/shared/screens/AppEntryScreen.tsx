@@ -7,7 +7,7 @@ import { supabase } from "../lib/supabase";
 import { redirectAfterAuth } from "../lib/auth";
 import { resetTo } from "../lib/navigation";
 
-// App entry point. Sessions persist to AsyncStorage (see src/lib/supabase.ts),
+// App entry point. Sessions persist to AsyncStorage (see lib/supabase.ts),
 // so on every fresh launch we check for one before deciding where to land —
 // a signed-in user should go straight to their home screen and stay logged
 // in until they explicitly log out, not be dropped back on the login form

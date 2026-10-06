@@ -63,7 +63,7 @@ export async function setDriverOnlineChecked(lat?: number, lng?: number): Promis
 // read directly (RLS: "drivers manage own notification presence" scopes
 // this to the caller's own row).
 //
-// Needed because src/lib/driverStatus.ts's `online` flag is in-memory
+// Needed because driverStatus.ts's `online` flag is in-memory
 // only and always initializes to `false` on a fresh JS process — a real
 // app relaunch, or an uncaught-exception crash-and-relaunch, silently
 // shows the driver as "Offline" in the UI even if the server still has

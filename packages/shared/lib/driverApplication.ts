@@ -50,7 +50,7 @@ export async function submitDriverRegistration(payload: DriverRegistrationPayloa
   });
   if (error) throw error;
 
-  // The local online/offline flag (src/lib/driverStatus.ts) has no
+  // The local online/offline flag (driverStatus.ts) has no
   // reason to be true here — this is a brand new driver registration —
   // but reset it defensively in case of stale in-memory state from a
   // previous session, so nothing shows them online before they've ever
@@ -59,12 +59,12 @@ export async function submitDriverRegistration(payload: DriverRegistrationPayloa
   return data;
 }
 
-// Switches which side of the app the signed-in user is using. Throws
-// with message "DRIVER_NOT_REGISTERED" if mode is 'driver' and they
-// haven't completed registration yet — callers should catch that
-// specifically and route into the registration flow instead of just
-// showing a generic error (see applyToDrive below for the banner's own
-// handling of this).
+// Sets which side the signed-in account is on (profiles.active_mode;
+// each app claims its own via appMode.ts). Throws with message
+// "DRIVER_NOT_REGISTERED" if mode is 'driver' and they haven't
+// completed registration yet — callers should catch that specifically
+// and route into the registration flow instead of just showing a
+// generic error (see applyToDrive below for the banner's own handling).
 export async function switchActiveMode(mode: ActiveMode): Promise<void> {
   const { error } = await supabase.rpc("switch_active_mode", { mode_in: mode });
   if (error) {
@@ -74,7 +74,7 @@ export async function switchActiveMode(mode: ActiveMode): Promise<void> {
     throw error;
   }
   // The RPC already force-offlines server-side on driver -> rider, but
-  // sync the local in-memory flag (src/lib/driverStatus.ts) too so any
+  // sync the local in-memory flag (driverStatus.ts) too so any
   // currently-mounted driver screen's UI updates immediately instead of
   // only catching up on its next poll.
   if (mode === "rider") {

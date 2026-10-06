@@ -69,7 +69,11 @@
         "scheme": "ridenative",
         "androidPackage": "com.alpha_lubisi.ridenative",
         "iosAppStoreUrl": ""
+      },
+      "eas": {
+        "projectId": "b9864d2f-ae61-490d-8598-ba50e55ed983"
       }
-    }
+    },
+    "owner": "alpha_lubisi"
   }
 }

@@ -47,8 +47,9 @@ async function seedAccount(username, role) {
     return null;
   }
   // Adjust this to match whatever your profiles table actually requires
-  // (role, verification_status, etc.) — see src/lib/auth.ts registerUser
-  // for the fields this project sets on real signup.
+  // (role, verification_status, etc.) — see registerUser in
+  // packages/shared/lib/auth.ts for the fields this project sets on real
+  // signup.
   await admin
     .from("profiles")
     .update({ role, username, verification_status: role === "driver" ? "verified" : undefined })

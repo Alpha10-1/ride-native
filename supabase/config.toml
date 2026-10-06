@@ -1,0 +1,26 @@
+# Supabase CLI config — kept ONLY for Edge Function deploy settings.
+#
+# Without this file, a `supabase functions deploy <name>` that forgets
+# --no-verify-jwt can turn the gateway's JWT check back on (older CLIs
+# always send verify_jwt = true, and a first deploy defaults to it). The
+# functions listed below would then reject all their real callers with
+# 401, since none of them send a user JWT. Functions not listed keep the
+# default, verify_jwt = true.
+#
+# All other sections are left at the CLI defaults, which describe a local
+# dev stack only. Never run `supabase config push` against the live
+# project: it would overwrite its real auth/API settings with them.
+
+project_id = "ride-native"
+
+# Called via pg_net and by paystack-charge-recurring; checks FUNCTION_SECRET itself.
+[functions.send-push]
+verify_jwt = false
+
+# Called by the daily cron job; checks CRON_SECRET itself.
+[functions.paystack-charge-recurring]
+verify_jwt = false
+
+# Called by Paystack; checks the x-paystack-signature HMAC itself.
+[functions.paystack-webhook]
+verify_jwt = false
