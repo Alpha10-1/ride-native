@@ -1,33 +1,38 @@
-# RIDE — Native App
+# RIDE — Native Apps
 
-The rider/driver mobile app for **RIDE**, a ride-hailing platform. Built with
-Expo Router and React Native, backed by Supabase (Postgres + Edge Functions),
+The mobile apps for **RIDE**, a ride-hailing platform: a **Ride** app for
+riders and a **Ride Driver** app for drivers. Built with Expo Router and React
+Native, backed by one shared Supabase project (Postgres + Edge Functions),
 with payments handled through Paystack.
 
-This app supports a single user account switching between **rider** and
-**driver** modes (dual-role), rather than separate apps per role.
+Both apps use the same accounts. Someone who rides and drives signs in to
+each app with the same username; opening an app switches their account to
+that side (see [How the two apps share an account](#how-the-two-apps-share-an-account)).
 
 A companion web admin panel lives in a separate repo:
-[`admin-dashboard`](https://github.com/Alpha10-1/admin-dashboard).
+[`admin-dashboard`](https://github.com/Alpha10-1/admin-dashboard). It needs
+no changes for the split.
 
 ---
 
 ## Features
 
-**Rider**
+**Ride (rider app)**
 - Request rides with live map tracking, saved places, and scheduled rides
 - Wallet top-ups and card payments via Paystack, plus cash payments
 - Trip history, spending reports (PDF export), and in-ride chat
 - Safety tools (SOS), promotions, and push notifications
+- "Become a driver" opens Ride Driver (or its store listing)
 
-**Driver**
-- Apply/verify to drive directly from the rider account (dual-role Apply flow)
-- Go online/offline, accept ride requests, manage active trips
+**Ride Driver (driver app)**
+- Sign up as a driver, or sign in with an existing rider account and
+  register (licence, vehicle, then document verification)
+- Go online/offline, receive and accept ride requests, manage active trips
 - Earnings, weekly statements (PDF export), payout method management
 - Subscription management, ratings, and driver-side support chat
 
 **Shared**
-- Supabase Auth (email/phone) with role-aware routing
+- Supabase Auth (username + password) with suspension/staff checks
 - Test-mode support for QA without live payment/subscription gating
 - what3words location lookup for precise pickup pins
 
@@ -37,11 +42,12 @@ A companion web admin panel lives in a separate repo:
 
 | Layer | Technology |
 |---|---|
-| App framework | [Expo](https://expo.dev) + [Expo Router](https://docs.expo.dev/router/introduction/) (file-based routing) |
+| App framework | [Expo](https://expo.dev) SDK 54 + [Expo Router](https://docs.expo.dev/router/introduction/) (file-based routing) |
 | UI | React Native 0.81, React 19 |
 | Maps | `react-native-maps` (Google Maps) |
 | Backend | [Supabase](https://supabase.com) (Postgres, Auth, Edge Functions, Storage) |
 | Payments | [Paystack](https://paystack.com) |
+| Repo | npm workspaces monorepo |
 | Language | TypeScript |
 
 ---
@@ -49,30 +55,43 @@ A companion web admin panel lives in a separate repo:
 ## Project structure
 
 ```
-app/
-  (rider)/          # Rider-only screens (route group)
-  (driver)/          # Driver-only screens (route group)
-  (tabs)/            # Shared bottom-tab entry points
-  auth/               # Login, signup, password/username recovery
-  _layout.tsx         # Root layout / role-aware routing
-  index.tsx           # App entry
-src/
-  components/         # Shared UI components
-  screens/             # Screen implementations used by app/ routes
-  lib/                 # Supabase client, payments, rides, notifications, etc.
-  hooks/               # Shared React hooks
-  theme/               # Design tokens
+apps/
+  rider/                 # Ride — rider app (Expo project)
+    app/(rider)/         #   rider screens
+    app/auth/, _layout   #   thin re-exports of shared screens
+    app.json             #   identity + extra.appRole = "rider"
+  driver/                # Ride Driver — driver app (Expo project)
+    app/(driver)/        #   driver screens
+    app/driver-registration.tsx
+    app.json             #   identity + extra.appRole = "driver"
+packages/
+  shared/                # @ride/shared — used by both apps as TS source
+    lib/                 #   Supabase client, rides, payments, push, app mode...
+    components/          #   UI components (incl. ModeGate)
+    screens/             #   screens used by both apps (auth, profile, wallet...)
+    hooks/, theme/, types/
 supabase/
-  functions/           # Edge Functions (Paystack, push notifications, admin, what3words)
-  migrations/           # SQL migrations (applied in timestamp order)
-plugins/               # Custom Expo config plugins (e.g. HMS Core)
-loadtest/               # Scripts for load-testing ride requests
+  functions/             # Edge Functions (Paystack, push, admin, what3words)
+  migrations/            # SQL migrations (applied in timestamp order)
+  tests/                 # SQL scenario tests (run against a local Postgres)
+loadtest/                # Scripts for load-testing ride requests
 ```
 
-> **Note on route groups:** `(rider)` and `(driver)` are Expo Router route
-> groups and must remain literal folder names with parentheses. Code should
-> never be placed in plain `app/rider/` or `app/driver/` folders — those are
-> not recognized by the router and will silently fail to route correctly.
+Shared code imports as `@ride/shared/lib/rides`, `@ride/shared/components/Screen`
+and so on. It has no build step: Metro and TypeScript read the source directly,
+and its runtime dependencies come from the apps (hoisted to the root
+`node_modules`). Add a native dependency to **both** apps' `package.json`
+at the same version, or autolinking and hoisting can diverge.
+
+Shared code that behaves differently per app reads `APP_ROLE` / `appRoute()`
+from `packages/shared/lib/appConfig.ts`, which comes from each app's
+`app.json` → `expo.extra.appRole`. Don't branch on `profiles.role` — it only
+records how an account first signed up.
+
+> **Route groups:** `(rider)` and `(driver)` are Expo Router route groups and
+> must keep their literal parenthesised folder names. Each app contains only
+> its own group, so a route like `/(driver)/requests` doesn't exist in the
+> rider app.
 
 ---
 
@@ -80,7 +99,6 @@ loadtest/               # Scripts for load-testing ride requests
 
 ### Prerequisites
 - Node.js (LTS) and npm
-- [Expo CLI](https://docs.expo.dev/get-started/installation/) (via `npx expo`)
 - A Supabase project (URL + anon key)
 - A Paystack account (test keys for development)
 - Google Maps API keys for iOS and Android
@@ -90,33 +108,61 @@ loadtest/               # Scripts for load-testing ride requests
 ```bash
 git clone https://github.com/Alpha10-1/ride-native.git
 cd ride-native
-npm install
+npm install            # installs every workspace from the repo root
 ```
 
-### Environment / configuration
+Always run `npm install` from the repo root, not inside an app folder.
 
-Update `app.json` with your own Google Maps API keys under `ios.config.googleMapsApiKey`
-and `android.config.googleMaps.apiKey`, and confirm the `ios.bundleIdentifier` /
-`android.package` values match your Apple/Google developer accounts.
+### Environment
 
-Supabase and Paystack credentials are configured via Supabase project secrets
-(for Edge Functions) and the Supabase client in `src/lib/supabase.ts` — set
-your project URL and anon key there or via your preferred env strategy.
-
-### Run the app
+Each app reads its own `.env` (Expo only looks next to the app's `app.json`):
 
 ```bash
-npm start          # Expo dev server (scan QR with Expo Go, or open a simulator)
-npm run ios        # Run on iOS simulator
-npm run android     # Run on Android emulator
-npm run web         # Run in a browser (limited — see Known limitations)
+cp apps/rider/.env.example  apps/rider/.env
+cp apps/driver/.env.example apps/driver/.env
+# fill in the same Supabase URL/anon key in both
 ```
+
+Google Maps keys for the native map SDKs are in each app's `app.json`
+(`ios.config.googleMapsApiKey`, `android.config.googleMaps.apiKey`).
+
+### Run the apps
+
+```bash
+npm run rider             # Expo dev server for Ride
+npm run driver            # Expo dev server for Ride Driver
+npm run rider:android     # native build + run (also :ios, driver:android, driver:ios)
+```
+
+Push notifications, maps and background behavior need a development build
+(`expo run:*` or an EAS development build), not Expo Go.
 
 ### Type checking
 
 ```bash
-npx tsc --noEmit
+npm run typecheck         # both apps (each also checks packages/shared)
 ```
+
+---
+
+## How the two apps share an account
+
+The server still uses `profiles.active_mode` to decide whether someone is
+driving: dispatch only sends ride requests to accounts in driver mode, and
+notifications for one side are held back while the account is on the other.
+In the single app this changed when the user tapped *Switch to Rider/Driver*.
+Now **opening an app is the switch**: each app claims its own mode on launch
+and whenever it returns to the foreground (`packages/shared/lib/appMode.ts`).
+
+Two guards make that safe for people who both ride and drive. Neither app
+switches while a trip is in progress on the other side. The rider app asks
+before taking an online driver offline. In both cases `ModeGate` covers the
+screen and explains what's happening.
+
+Push tokens are stored **per app** (`rider_push_token`, `driver_push_token`),
+so ride requests always reach Ride Driver and trip updates always reach Ride,
+whichever app was opened last. See
+`supabase/migrations/20261006120000_split_apps_push_tokens.sql`.
 
 ---
 
@@ -125,13 +171,13 @@ npx tsc --noEmit
 Migrations live in `supabase/migrations/` and are applied in timestamp order:
 
 ```bash
-supabase db push
+npx supabase db push
 ```
 
 Edge Functions live in `supabase/functions/` and are deployed individually:
 
 ```bash
-supabase functions deploy <function-name>
+npx supabase functions deploy <function-name>
 ```
 
 Key functions include Paystack initialization/charge/webhook flows for
@@ -139,22 +185,70 @@ top-ups, ride checkout, card verification, and subscriptions; a push
 notification sender; an admin account-creation function; and a what3words
 address lookup.
 
+**Auth redirect URLs.** Password-reset and email-confirmation links open the
+app they were requested from, so Supabase → Authentication → URL
+Configuration → Redirect URLs must allow both `ridenative://**` and
+`ridedriver://**`.
+
+> The base schema (migrations `0001`–`0016`: profiles, rides, the original
+> push and presence triggers, etc.) was applied to the hosted project but
+> isn't in this repo. Export it with `npx supabase db dump --schema public`
+> and commit it so the backend can be rebuilt from source.
+
+### Tests
+
+```bash
+PGUSER=postgres ./supabase/tests/split-apps-push-tokens/run.sh
+```
+
+Applies the notification migrations to a **throwaway local** Postgres
+database (never the Supabase project) and checks which app each push
+reaches: ride requests, trip updates, announcements, sign-out, shared phones,
+and accounts still on the pre-split app.
+
 ---
 
 ## Building & submitting
 
-Builds and store submissions are managed with [EAS](https://expo.dev/eas):
+Each app is its own EAS project and store listing. Run EAS commands from
+inside the app's folder:
 
 ```bash
-eas build --profile production --platform ios
+cd apps/rider   # or apps/driver
 eas build --profile production --platform android
-eas submit --platform ios
+eas build --profile production --platform ios
 eas submit --platform android
+eas submit --platform ios
 ```
 
-`eas.json` submit configuration requires account-specific credentials
-(Apple ID / Team ID / App Store Connect app ID, and a Google Play service
-account JSON) that are not committed to this repo.
+- **Ride** keeps the original identity (`com.alpha_lubisi.ridenative`, EAS
+  project `72eae5ed-…`, scheme `ridenative`), so existing installs update
+  straight into the rider app.
+- **Ride Driver** is new (`com.alpha_lubisi.ridedriver`, scheme `ridedriver`).
+  Before its first build, run `npx eas init` in `apps/driver` to create its
+  EAS project — without a project ID it can't get push tokens, so it would
+  never receive ride requests.
+
+`eas.json` submit configuration needs account-specific credentials (Apple ID
+/ Team ID / App Store Connect app ID, and a Google Play service account JSON)
+that are not committed to this repo. Once each app has a store listing, put
+the other app's App Store URL in `expo.extra.counterpart.iosAppStoreUrl` so
+"Open Ride Driver" / "Open Ride" can send iOS users to install it.
+
+### Rolling out the split
+
+Existing users all have the pre-split app, which becomes the rider app when
+it updates. To avoid drivers losing ride requests in between:
+
+1. Publish **Ride Driver** to both stores.
+2. Apply `20261006120000_split_apps_push_tokens.sql`, then deploy the updated
+   `paystack-charge-recurring` function.
+3. Add `ridedriver://**` to the Supabase auth redirect allow-list.
+4. Tell drivers to install Ride Driver.
+5. Release the **Ride** update.
+
+Until someone installs one of the new apps, their account keeps working
+exactly as before on the old app.
 
 ---
 
@@ -162,10 +256,13 @@ account JSON) that are not committed to this repo.
 
 - **Web is not a supported target for production.** `react-native-maps` has
   no web implementation, so map-dependent screens will not function via
-  `expo start --web` / `npm run web`.
+  `expo start --web`.
 - Paystack **Preauthorization** (used for card-based ride reservations) is
   gated behind Paystack's approval for South African merchants; the app
   degrades gracefully to standard charge flows until that's approved.
+- Driver location only refreshes while Ride Driver is in the foreground, and
+  dispatch ignores locations older than 15 minutes. Background location is
+  not implemented yet.
 
 ---
 
