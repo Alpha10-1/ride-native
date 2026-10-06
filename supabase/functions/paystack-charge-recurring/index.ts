@@ -40,26 +40,30 @@ function amountForCycle(cycleCount: number): number {
 }
 
 async function notifyDriver(adminClient: any, driverId: string, title: string, body: string) {
-  // Best-effort push via the existing send-push function + profiles.push_token
-  // column, mirroring how push tokens are stored elsewhere in this app
-  // (see src/lib/pushNotifications.ts savePushToken). Never let a
+  // Best-effort push via the existing send-push function. Never let a
   // notification failure block billing logic.
+  //
+  // Subscription/billing notices belong in the driver app. Same rules as
+  // public._app_push_token() in 20261006120000_split_apps_push_tokens.sql
+  // (apply that migration before deploying this): accounts on the new
+  // apps get their driver-app token, whatever app they last opened;
+  // accounts still on the pre-split app keep the old behavior — the single
+  // push_token, silenced while they're in rider mode. Billing itself runs
+  // regardless; this only decides where the notification goes.
   try {
     const { data: profile } = await adminClient
       .from("profiles")
-      .select("push_token, active_mode")
+      .select("push_token, rider_push_token, driver_push_token, active_mode")
       .eq("id", driverId)
       .maybeSingle();
+    if (!profile) return;
 
-    // Dual-role accounts can switch between rider and driver mode
-    // (see 20260803120000_dual_role_driver_apply.sql). Someone currently
-    // using the app as a rider shouldn't get driver-side pushes like
-    // "Payment failed" / subscription reminders — those only make sense
-    // to someone actively driving. Billing itself still runs regardless
-    // of active_mode; this only silences the notification.
-    if (profile?.active_mode && profile.active_mode !== "driver") return;
-
-    const token = profile?.push_token;
+    const hasPerAppTokens = !!(profile.rider_push_token || profile.driver_push_token);
+    const token = hasPerAppTokens
+      ? profile.driver_push_token
+      : (profile.active_mode ?? "driver") === "driver"
+        ? profile.push_token
+        : null;
     if (!token) return;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

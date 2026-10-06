@@ -34,14 +34,15 @@ yarn-error.*
 
 # local env files
 .env*
+!.env.example
 .local
 
 # typescript
 *.tsbuildinfo
 
-# generated native folders
-/ios
-/android
+# generated native folders (one set per app)
+apps/*/ios/
+apps/*/android/
 
 # Load testing — never commit generated test accounts
 loadtest/riders.json

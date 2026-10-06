@@ -1,0 +1,6 @@
+{
+  "name": "@ride/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Code shared by the Ride rider and driver apps: Supabase client, business logic, components and screens. Consumed as TypeScript source (no build step); its runtime dependencies are provided by the apps and hoisted to the workspace root."
+}
