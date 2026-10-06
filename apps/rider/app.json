@@ -1,0 +1,78 @@
+{
+  "expo": {
+    "name": "Ride",
+    "slug": "ride-native",
+    "scheme": "ridenative",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.jpg",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "waze",
+          "whatsapp"
+        ]
+      },
+      "config": {
+        "googleMapsApiKey": "REPLACE_WITH_YOUR_IOS_GOOGLE_MAPS_API_KEY"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.alpha_lubisi.ridenative",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyANE32LP8cOsOcMveKgpCXDnA-eONJYuMQ"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos so you can upload verification documents."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#ff2e2e"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ]
+    ],
+    "extra": {
+      "appRole": "rider",
+      "counterpart": {
+        "name": "Ride Driver",
+        "scheme": "ridedriver",
+        "androidPackage": "com.alpha_lubisi.ridedriver",
+        "iosAppStoreUrl": ""
+      },
+      "eas": {
+        "projectId": "72eae5ed-7601-4dad-be02-015e988174d5"
+      }
+    }
+  }
+}
